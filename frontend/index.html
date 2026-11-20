@@ -85,7 +85,7 @@
         <div id="bcvhList" class="bcvh-list"></div>
       </div>
 
-      <!-- Regions List + SQL Server Actions -->
+      <!-- Regions List -->
       <div class="card">
         <div class="card-header">
           <h2>Danh sách khu vực (<span id="regionCount">0</span>)</h2>
@@ -94,18 +94,10 @@
               <input type="checkbox" id="polygonsOnlyToggle" checked />
               <span>Chỉ Polygon</span>
             </label>
+            <button type="button" id="reloadDbBtn" class="btn small" title="Tải lại dữ liệu mới nhất từ SQL Server">
+              ↻ Tải lại
+            </button>
           </div>
-        </div>
-        <div class="db-toolbar">
-          <button type="button" id="saveAllDbBtn" class="btn small success-btn" disabled title="Lưu thay đổi (cần đăng nhập Admin) vào SQL Server">
-            💾 Lưu tất cả vào DB
-          </button>
-          <button type="button" id="reloadDbBtn" class="btn small" title="Tải lại danh sách khu vực đã lưu trong SQL Server">
-            ↻ Tải từ DB
-          </button>
-          <button type="button" id="clearAllRegionsBtn" class="btn small danger-ghost" disabled title="Xóa khỏi bản đồ">
-            Xóa hết
-          </button>
         </div>
         <div class="region-filter-bar">
           <input id="regionSearchInput" type="text" class="region-search-input" placeholder="Lọc nhanh tên xã, phường, huyện cũ..." />

@@ -2106,3 +2106,34 @@ a.admin-nav-btn {
     grid-template-columns: 1fr;
   }
 }
+
+/* Client Region Eye & Locate Icon Buttons */
+.mini-btn.eye-btn,
+.mini-btn.locate-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+}
+
+.mini-btn.eye-btn.is-visible {
+  color: var(--primary);
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.mini-btn.eye-btn.is-hidden {
+  color: #94a3b8;
+  background: #f8fafc;
+}
+
+.mini-btn.locate-btn {
+  color: #334155;
+}
+
+.mini-btn.locate-btn:hover {
+  color: var(--primary);
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}

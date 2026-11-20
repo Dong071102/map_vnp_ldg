@@ -2,10 +2,6 @@ import {
   fetchHealth,
   fetchSavedRegions,
   fetchBcvhOffices,
-  saveRegionToDb,
-  saveRegionsBatchToDb,
-  deleteRegionFromDb,
-  deleteAllRegionsFromDb,
 } from './api.js';
 import {
   isPolygonFeature,
@@ -86,9 +82,7 @@ const bcvhListEl = $('bcvhList');
 
 const regionCount = $('regionCount');
 const polygonsOnlyToggle = $('polygonsOnlyToggle');
-const saveAllDbBtn = $('saveAllDbBtn');
 const reloadDbBtn = $('reloadDbBtn');
-const clearAllRegionsBtn = $('clearAllRegionsBtn');
 const regionSearchInput = $('regionSearchInput');
 const regionLayerFilter = $('regionLayerFilter');
 const regionListEmpty = $('regionListEmpty');
@@ -794,9 +788,27 @@ function updateToolbarStats() {
       ? `${visible.length}/${regions.length} vùng (${wardsCount} xã · ${oldCount} huyện cũ)`
       : `${visible.length}/${regions.length} khu vực`;
   fitBoundsBtn.disabled = visible.length === 0;
-  clearAllRegionsBtn.disabled = regions.length === 0;
-  saveAllDbBtn.disabled = regions.length === 0;
 }
+
+const EYE_OPEN_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+  <circle cx="12" cy="12" r="3"></circle>
+</svg>`;
+
+const EYE_OFF_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.77 21.77 0 0 1 5.06-5.94"></path>
+  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a21.78 21.78 0 0 1-2.16 3.19"></path>
+  <line x1="1" y1="1" x2="23" y2="23"></line>
+</svg>`;
+
+const LOCATE_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <circle cx="12" cy="12" r="7"></circle>
+  <circle cx="12" cy="12" r="2"></circle>
+  <line x1="12" y1="2" x2="12" y2="5"></line>
+  <line x1="12" y1="19" x2="12" y2="22"></line>
+  <line x1="2" y1="12" x2="5" y2="12"></line>
+  <line x1="19" y1="12" x2="22" y2="12"></line>
+</svg>`;
 
 // --- Sidebar Rendering ---
 function renderRegionList() {
@@ -820,36 +832,19 @@ function renderRegionList() {
       selectRegion(r.id);
     });
 
-    const visCb = document.createElement('input');
-    visCb.type = 'checkbox';
-    visCb.checked = r.visible;
-    visCb.title = 'Hiện / ẩn trên bản đồ';
-    visCb.addEventListener('change', () => {
-      r.visible = visCb.checked;
-      renderRegionOnMap(r);
-      updateToolbarStats();
-      renderRegionList();
-      updateJsonOutput();
-    });
-
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'region-color-input';
     colorInput.value = getEffectiveRegionColor(r);
-    colorInput.title = 'Đổi màu khu vực này';
+    colorInput.title = 'Đổi màu hiển thị tạm thời';
     colorInput.addEventListener('input', () => {
       r.color = colorInput.value;
       r.customColor = true;
-      r.unsaved = true;
       renderRegionOnMap(r);
       renderRegionList();
       updateJsonOutput();
     });
 
-    const dbTag =
-      r.dbId && !r.unsaved
-        ? '<span class="tag-saved">Đã lưu DB</span>'
-        : '<span class="tag-unsaved">Chưa lưu DB</span>';
     const groupTag = r.layerGroup === 'district_old' ? '<span class="tag-layer-old">Huyện cũ</span>' : '';
 
     const info = document.createElement('div');
@@ -859,26 +854,31 @@ function renderRegionList() {
       <div class="region-sub">
         <span>${r.areaKm2 > 0 ? `~${formatArea(r.areaKm2 * 1e6)}` : '—'}</span>
         ${groupTag}
-        ${r.modified ? '<span class="tag-modified">Đã chỉnh sửa</span>' : ''}
-        ${dbTag}
       </div>
     `;
 
     const actions = document.createElement('div');
     actions.className = 'region-actions';
 
-    const saveOneBtn = document.createElement('button');
-    saveOneBtn.type = 'button';
-    saveOneBtn.className = 'mini-btn';
-    saveOneBtn.title = 'Lưu khu vực này vào SQL Server (cần đăng nhập Admin)';
-    saveOneBtn.textContent = '💾';
-    saveOneBtn.addEventListener('click', () => handleSaveSingleRegion(r));
+    const eyeBtn = document.createElement('button');
+    eyeBtn.type = 'button';
+    eyeBtn.className = `mini-btn eye-btn${r.visible ? ' is-visible' : ' is-hidden'}`;
+    eyeBtn.title = r.visible ? 'Đang hiển thị — bấm để ẩn' : 'Đang ẩn — bấm để hiện';
+    eyeBtn.setAttribute('aria-pressed', String(r.visible));
+    eyeBtn.innerHTML = r.visible ? EYE_OPEN_SVG : EYE_OFF_SVG;
+    eyeBtn.addEventListener('click', () => {
+      r.visible = !r.visible;
+      renderRegionOnMap(r);
+      updateToolbarStats();
+      renderRegionList();
+      updateJsonOutput();
+    });
 
     const zoomBtn = document.createElement('button');
     zoomBtn.type = 'button';
-    zoomBtn.className = 'mini-btn';
-    zoomBtn.title = 'Phóng tới khu vực này';
-    zoomBtn.textContent = '⌖';
+    zoomBtn.className = 'mini-btn locate-btn';
+    zoomBtn.title = 'Định vị & phóng tới khu vực này';
+    zoomBtn.innerHTML = LOCATE_SVG;
     zoomBtn.addEventListener('click', () => {
       if (!r.visible) {
         r.visible = true;
@@ -890,15 +890,8 @@ function renderRegionList() {
       zoomToRegion(r.id);
     });
 
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'mini-btn remove';
-    delBtn.title = r.dbId ? 'Xóa khỏi bản đồ và SQL Server (cần đăng nhập Admin)' : 'Xóa khỏi bản đồ';
-    delBtn.textContent = '✕';
-    delBtn.addEventListener('click', () => removeRegion(r.id));
-
-    actions.append(saveOneBtn, zoomBtn, delBtn);
-    item.append(visCb, colorInput, info, actions);
+    actions.append(eyeBtn, zoomBtn);
+    item.append(colorInput, info, actions);
     regionList.appendChild(item);
   });
 }
@@ -1050,98 +1043,10 @@ async function loadFromDatabase({ fitAfter = true } = {}) {
   }
 }
 
-async function handleSaveSingleRegion(region) {
-  try {
-    const res = await saveRegionToDb(serializeRegionForDb(region));
-    updateDbPill(res.db);
-    region.dbId = res.region.id;
-    region.unsaved = false;
-    renderRegionList();
-    renderSelectedMeta();
-    setStatus(`Đã lưu "${region.meta.name}" vào SQL Server (ID #${region.dbId}).`, 'success');
-  } catch (err) {
-    setStatus(`Lỗi lưu SQL Server: ${err.message}`, 'error');
-  }
-}
-
-async function handleSaveAllRegions() {
-  if (regions.length === 0) return;
-  saveAllDbBtn.disabled = true;
-  try {
-    const res = await saveRegionsBatchToDb(regions.map(serializeRegionForDb));
-    updateDbPill(res.db);
-    const byKey = new Map(res.regions.map((item) => [item.key, item]));
-    for (const r of regions) {
-      const saved = byKey.get(r.key);
-      if (saved) {
-        r.dbId = saved.id;
-        r.unsaved = false;
-      }
-    }
-    renderRegionList();
-    renderSelectedMeta();
-    setStatus(`Đã lưu thành công ${res.count} khu vực vào SQL Server!`, 'success');
-  } catch (err) {
-    setStatus(`Lỗi lưu SQL Server: ${err.message}`, 'error');
-  } finally {
-    saveAllDbBtn.disabled = regions.length === 0;
-  }
-}
-
-async function removeRegion(regionId) {
-  const idx = regions.findIndex((r) => r.id === regionId);
-  if (idx === -1) return;
-  const target = regions[idx];
-
-  if (target.dbId) {
-    try {
-      await deleteRegionFromDb(target.dbId);
-    } catch (err) {
-      setStatus(`Lỗi xóa khỏi DB: ${err.message}`, 'error');
-      return;
-    }
-  }
-
-  removeRegionLayers(target);
-  regions.splice(idx, 1);
-  if (selectedRegionId === regionId) selectedRegionId = regions[regions.length - 1]?.id || null;
-  updateToolbarStats();
-  renderRegionList();
-  renderSelectedMeta();
-  updateJsonOutput();
-  setStatus(`Đã xóa "${target.meta.name}".`, 'success');
-}
-
 // --- Events ---
-saveAllDbBtn.addEventListener('click', handleSaveAllRegions);
-
 reloadDbBtn.addEventListener('click', async () => {
   const count = await loadFromDatabase({ fitAfter: true });
   if (count >= 0) setStatus(`Đã tải ${count} khu vực từ SQL Server.`, 'success');
-});
-
-clearAllRegionsBtn.addEventListener('click', async () => {
-  const hasSaved = regions.some((r) => r.dbId);
-  if (
-    hasSaved &&
-    window.confirm('Bạn có muốn xóa luôn các khu vực này trong SQL Server không? (Bấm Cancel để chỉ xóa trên bản đồ)')
-  ) {
-    try {
-      await deleteAllRegionsFromDb();
-    } catch (err) {
-      setStatus(`Lỗi xóa DB: ${err.message}`, 'error');
-      return;
-    }
-  }
-  regions.forEach(removeRegionLayers);
-  regions = [];
-  selectedRegionId = null;
-  colorCursor = 0;
-  updateToolbarStats();
-  renderRegionList();
-  renderSelectedMeta();
-  updateJsonOutput();
-  setStatus('Đã xóa sạch danh sách khu vực.', 'success');
 });
 
 fitBoundsBtn.addEventListener('click', fitAllVisibleBounds);
