@@ -7,14 +7,14 @@
 ## Bước 1: Đẩy code lên GitHub (GitHub Actions tự build image lên GHCR)
 
 ```bash
-git remote add origin https://github.com/<USERNAME>/<REPO>.git
+git remote add origin https://github.com/Dong071102/map_vnp_ldg.git
 git branch -M main
 git push -u origin main
 ```
 
 Sau khi push lên nhánh `main`:
 1. Vào tab **Actions** trên GitHub → workflow **Build & Push Docker Image to GHCR** sẽ tự chạy `npm test`, build `Dockerfile` và đẩy image lên:
-   `ghcr.io/<username>/<repo>:latest` (lưu ý `<username>/<repo>` viết thường).
+   `ghcr.io/dong071102/map_vnp_ldg:latest`.
 2. Kiểm tra image tại mục **Packages** trên GitHub:
    - Nếu repo Private và muốn Portainer kéo image không cần token: mở Package → **Package settings** → đổi visibility thành **Public** (hoặc giữ Private và làm Bước 2a).
 
@@ -35,7 +35,7 @@ Sau khi push lên nhánh `main`:
 3. Kéo xuống mục **Environment variables** → bấm **Add an environment variable** (hoặc chuyển sang **Advanced mode** rồi dán mẫu sau và điền mật khẩu thực):
 
 ```env
-IMAGE_NAME=ghcr.io/<username>/<repo>:latest
+IMAGE_NAME=ghcr.io/dong071102/map_vnp_ldg:latest
 APP_PORT=3000
 DB_HOST=10.61.200.10
 DB_PORT=1433

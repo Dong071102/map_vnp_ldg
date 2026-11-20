@@ -1,7 +1,6 @@
 services:
   lamdong-map:
-    # Đổi OWNER/REPO thành tên GitHub của bạn (chữ thường), VD: ghcr.io/username/getjson:latest
-    image: ${IMAGE_NAME:-ghcr.io/OWNER/REPO:latest}
+    image: ${IMAGE_NAME:-ghcr.io/dong071102/map_vnp_ldg:latest}
     container_name: lamdong-map
     restart: unless-stopped
     ports:
