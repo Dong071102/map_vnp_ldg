@@ -1,0 +1,14 @@
+{
+  "name": "wiki-geojson-extractor",
+  "version": "2.0.0",
+  "description": "Web app lấy GeoJSON từ Wikipedia, kiểm tra & chia đôi vùng trùng lấn, lưu vào SQL Server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npm --prefix backend start",
+    "test": "npm --prefix backend test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+backend/node_modules
+.env
+.env.*
+backend/.env
+backend/.env.*
+*.log
+docker-compose*.yml
+DEPLOY.md

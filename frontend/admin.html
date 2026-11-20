@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quản trị ĐVHC Lâm Đồng — Admin</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="admin-body">
+  <header class="topbar admin-topbar">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <h1>Quản trị Lâm Đồng</h1>
+    </div>
+
+    <nav class="main-nav" aria-label="Điều hướng chính">
+      <a class="nav-tab" href="/">🗺 Bản đồ</a>
+      <a class="nav-tab active" href="/admin">🔐 Quản trị</a>
+    </nav>
+
+    <div class="topbar-right">
+      <div id="statusBanner" class="status-banner" hidden></div>
+      <span id="dbStatusPill" class="db-pill danger" hidden>SQL Server: Mất kết nối</span>
+      <span id="adminUserBadge" class="admin-user-chip" hidden></span>
+      <button type="button" id="logoutBtn" class="btn small ghost-btn" hidden>Đăng xuất</button>
+    </div>
+  </header>
+
+  <!-- Login Screen -->
+  <main id="loginScreen" class="login-screen" hidden>
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-icon">🔐</div>
+        <h2>Đăng nhập quản trị</h2>
+        <p>Quản lý bản đồ ranh giới 124 ĐVHC cấp xã &amp; 30 huyện cũ tỉnh Lâm Đồng.</p>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <div class="form-field">
+          <label for="loginUsername">Tên đăng nhập</label>
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="Nhập tên đăng nhập..." required />
+        </div>
+
+        <div class="form-field">
+          <label for="loginPassword">Mật khẩu</label>
+          <div class="password-wrap">
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Nhập mật khẩu..." required />
+            <button type="button" id="togglePasswordBtn" class="icon-btn" title="Hiện / ẩn mật khẩu">👁</button>
+          </div>
+        </div>
+
+        <div id="loginError" class="login-error" hidden></div>
+
+        <button type="submit" id="loginSubmitBtn" class="btn primary login-submit">Đăng nhập</button>
+      </form>
+
+      <div class="login-footer">
+        <a href="/">← Quay lại trang Bản đồ</a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Authenticated Admin Workspace -->
+  <section id="adminView" class="admin-view admin-clean-view" hidden>
+    <div class="admin-top-bar">
+      <div class="segmented-tabs" role="tablist" aria-label="Phân loại quản trị">
+        <button type="button" id="adminTabWardsBtn" class="segmented-tab active" role="tab" aria-selected="true">
+          Xã / Phường <span class="tab-count" id="adminStatTotal">124</span>
+        </button>
+        <button type="button" id="adminTabDistrictsBtn" class="segmented-tab" role="tab" aria-selected="false">
+          Huyện cũ <span class="tab-count" id="oldDistrictStatTotal">30</span>
+        </button>
+        <button type="button" id="adminTabBcvhBtn" class="segmented-tab" role="tab" aria-selected="false">
+          🚚 BCVH <span class="tab-count" id="bcvhStatTotal">0</span>
+        </button>
+      </div>
+
+      <div class="admin-top-meta">
+        <span class="meta-dot-pill ok" id="adminStatSynced">0/0 có bản đồ</span>
+        <span class="meta-dot-pill muted" id="adminStatPending" hidden>0 chưa có</span>
+        <span class="meta-dot-pill danger" id="adminStatError" hidden>0 lỗi</span>
+        <span class="meta-dot-pill muted" id="oldDistrictStatModified" hidden>0 đã sửa</span>
+        <button type="button" id="openAddRegionModalBtn" class="btn small primary" title="Nhập link GeoJSON / Wikipedia / QID để thêm mới địa bàn vào DB">
+          + Thêm mới
+        </button>
+      </div>
+    </div>
+
+    <!-- Panel 1: 124 Wards -->
+    <div id="wardsAdminPanel" class="admin-panel-box">
+      <div class="admin-toolbar-row">
+        <div class="search-input-box">
+          <span class="search-ico" aria-hidden="true">🔍</span>
+          <input id="adminSearchInput" type="text" class="admin-search-clean" placeholder="Tìm xã, phường, huyện cũ, thôn..." />
+        </div>
+        <select id="adminTypeFilter" class="filter-select">
+          <option value="all">Tất cả loại</option>
+          <option value="Phường">Phường (20)</option>
+          <option value="Xã">Xã (103)</option>
+          <option value="Đặc khu">Đặc khu (1)</option>
+        </select>
+        <select id="adminOldDistrictFilter" class="filter-select" title="Lọc theo huyện/TP cũ">
+          <option value="all">Tất cả huyện cũ</option>
+        </select>
+        <select id="adminStatusFilter" class="filter-select">
+          <option value="all">Mọi trạng thái</option>
+          <option value="synced">Đã có bản đồ</option>
+          <option value="pending">Chưa có</option>
+          <option value="error">Bị lỗi</option>
+        </select>
+        <button type="button" id="adminToggleAdvancedBtn" class="btn small ghost-btn" aria-expanded="false" aria-controls="adminAdvancedPanel">
+          ⚙ Nâng cao ▾
+        </button>
+      </div>
+
+      <div id="adminAdvancedPanel" class="admin-advanced-panel" hidden>
+        <div class="advanced-group">
+          <span class="advanced-label">Công cụ:</span>
+          <select id="adminSourceSelect" class="filter-select" title="Nguồn lấy GeoJSON">
+            <option value="auto" selected>Nguồn: Tự động (GeoJSON / Wiki → OSM)</option>
+            <option value="wikimedia">Nguồn: Wikimedia Geoshape</option>
+            <option value="osm">Nguồn: OpenStreetMap</option>
+          </select>
+          <button type="button" id="adminBatchFetchBtn" class="btn small primary">⬇ Lấy &amp; Lưu GeoJSON</button>
+          <button type="button" id="adminStopBatchBtn" class="btn small danger-solid" hidden>⏹ Dừng</button>
+          <button type="button" id="adminSyncWikiBtn" class="btn small">🔄 Đồng bộ danh sách</button>
+          <button type="button" id="adminOpenMapAllBtn" class="btn small">🗺 Mở tất cả lên Bản đồ</button>
+        </div>
+        <div class="advanced-group danger-zone">
+          <span class="advanced-label danger-text">⚠ Vùng nguy hiểm:</span>
+          <button
+            type="button"
+            id="adminImportOpenDataBtn"
+            class="btn small danger-solid"
+            title="Xóa toàn bộ GeoJSON hiện có và tạo lại bản mới (124 Xã mới + 30 Huyện cũ)"
+          >
+            🗑 Xóa GeoJSON cũ &amp; Tạo bản mới (124 Xã + 30 Huyện cũ)
+          </button>
+        </div>
+      </div>
+
+      <div id="adminProgressWrap" class="admin-progress-wrap" hidden>
+        <div class="admin-progress-track">
+          <div id="adminProgressBar" class="admin-progress-fill"></div>
+        </div>
+        <div id="adminProgressText" class="admin-progress-text"></div>
+      </div>
+
+      <div class="admin-table-wrap clean-table-wrap">
+        <table class="admin-table clean-table">
+          <thead>
+            <tr>
+              <th class="col-cb"><input type="checkbox" id="adminSelectAllCb" title="Chọn tất cả dòng đang lọc" /></th>
+              <th class="col-stt">#</th>
+              <th class="col-name">Đơn vị hành chính</th>
+              <th class="col-old-district">Thuộc huyện cũ</th>
+              <th class="col-metrics num-col">Diện tích · Dân số</th>
+              <th class="col-status">Bản đồ DB</th>
+              <th class="col-actions right-col">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="adminTableBody">
+            <tr><td colspan="7" class="admin-empty-cell">Đang tải dữ liệu...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel 2: 30 Old Districts -->
+    <div id="oldDistrictsAdminPanel" class="admin-panel-box" hidden>
+      <div class="admin-toolbar-row">
+        <div class="search-input-box">
+          <span class="search-ico" aria-hidden="true">🔍</span>
+          <input id="oldDistrictSearchInput" type="text" class="admin-search-clean" placeholder="Tìm huyện, thị xã, thành phố cũ..." />
+        </div>
+        <select id="oldDistrictProvinceFilter" class="filter-select">
+          <option value="all">Tất cả tỉnh cũ (30)</option>
+          <option value="Lâm Đồng cũ">Lâm Đồng cũ (12)</option>
+          <option value="Bình Thuận cũ">Bình Thuận cũ (10)</option>
+          <option value="Đắk Nông cũ">Đắk Nông cũ (8)</option>
+        </select>
+      </div>
+
+      <div class="admin-table-wrap clean-table-wrap">
+        <table class="admin-table clean-table">
+          <thead>
+            <tr>
+              <th class="col-stt">#</th>
+              <th class="col-name">Huyện / TX / TP cũ</th>
+              <th class="col-old-district">Thuộc tỉnh cũ</th>
+              <th class="col-metrics num-col">Diện tích · Số điểm</th>
+              <th class="col-status">Trạng thái</th>
+              <th class="col-actions right-col">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="oldDistrictTableBody">
+            <tr><td colspan="6" class="admin-empty-cell">Đang tải danh sách huyện cũ...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel 3: BCVH (Bưu cục Vận hành) -->
+    <div id="bcvhAdminPanel" class="admin-panel-box" hidden>
+      <div class="admin-toolbar-row">
+        <div class="search-input-box">
+          <span class="search-ico" aria-hidden="true">🔍</span>
+          <input id="bcvhSearchInput" type="text" class="admin-search-clean" placeholder="Tìm tên BCVH, mã, xã phục vụ..." />
+        </div>
+        <button type="button" id="openNewBcvhBtn" class="btn small primary">🚚 + Thêm Bưu cục Vận hành</button>
+      </div>
+
+      <div class="admin-table-wrap clean-table-wrap">
+        <table class="admin-table clean-table">
+          <thead>
+            <tr>
+              <th class="col-stt">#</th>
+              <th class="col-name">Bưu cục Vận hành</th>
+              <th class="col-old-district">Vị trí đặt BCVH (Xe tải)</th>
+              <th>Điểm phục vụ (Tập hợp xã)</th>
+              <th class="col-actions right-col">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="bcvhTableBody">
+            <tr><td colspan="5" class="admin-empty-cell">Chưa có Bưu cục Vận hành nào. Bấm "+ Thêm Bưu cục Vận hành" để tạo mới.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Create / Edit BCVH Modal -->
+  <div id="bcvhModal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-dialog-bcvh" role="dialog" aria-modal="true" aria-labelledby="bcvhModalTitle">
+      <div class="modal-header">
+        <div>
+          <h3 id="bcvhModalTitle">🚚 Thêm Bưu cục Vận hành</h3>
+          <div class="modal-subtitle">Chọn tập hợp xã phục vụ và xác định vị trí đặt BCVH (theo xã hoặc tọa độ Kinh độ / Vĩ độ)</div>
+        </div>
+        <button type="button" id="bcvhModalCloseBtn" class="mini-btn" title="Đóng (Esc)">✕</button>
+      </div>
+
+      <form id="bcvhForm" class="bcvh-form-body">
+        <div class="bcvh-grid-2">
+          <div class="form-field">
+            <label for="bcvhNameInput">Tên Bưu cục Vận hành *</label>
+            <input id="bcvhNameInput" type="text" placeholder="VD: BCVH Bảo Lộc, BCVH Đà Lạt..." required />
+          </div>
+          <div class="bcvh-grid-code-color">
+            <div class="form-field">
+              <label for="bcvhCodeInput">Mã BCVH</label>
+              <input id="bcvhCodeInput" type="text" placeholder="VD: 670000" />
+            </div>
+            <div class="form-field">
+              <label for="bcvhColorInput">Màu vùng</label>
+              <input id="bcvhColorInput" type="color" value="#ea580c" class="bcvh-color-picker" />
+            </div>
+          </div>
+        </div>
+
+        <div class="bcvh-location-box">
+          <div class="bcvh-section-title">📍 Vị trí đặt Bưu cục Vận hành (hiển thị icon xe tải 🚚)</div>
+          <div class="bcvh-grid-3">
+            <div class="form-field">
+              <label for="bcvhHostWardSelect">Xã / Phường đặt BCVH</label>
+              <select id="bcvhHostWardSelect" class="filter-select bcvh-select">
+                <option value="">-- Chọn xã đặt vị trí --</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="bcvhLatInput">Vĩ độ (Lat) — tùy chọn</label>
+              <input id="bcvhLatInput" type="text" inputmode="decimal" placeholder="VD: 11.5479 (dán lat, lng)" />
+            </div>
+            <div class="form-field">
+              <label for="bcvhLngInput">Kinh độ (Lng) — tùy chọn</label>
+              <input id="bcvhLngInput" type="text" inputmode="decimal" placeholder="VD: 107.8077" />
+            </div>
+          </div>
+          <div class="bcvh-hint-line">
+            Nếu nhập tọa độ Kinh độ &amp; Vĩ độ, xe tải sẽ ghim chính xác tại tọa độ đó; nếu để trống sẽ tự đặt tại tâm xã đã chọn. Mẹo: dán thẳng <code>lat, lng</code> từ Google Maps vào ô Vĩ độ sẽ tự tách.
+          </div>
+          <div class="form-field" style="margin-top: 6px;">
+            <label for="bcvhAddressInput">Địa chỉ / Ghi chú</label>
+            <input id="bcvhAddressInput" type="text" placeholder="Địa chỉ trụ sở hoặc ghi chú vận hành..." />
+          </div>
+        </div>
+
+        <div class="bcvh-wards-box">
+          <div class="bcvh-wards-header">
+            <span class="bcvh-section-title">📦 Tập hợp xã / phường phục vụ <span id="bcvhSelectedCountBadge" class="tab-count">0 xã</span></span>
+            <div class="bcvh-wards-tools">
+              <input id="bcvhWardSearchInput" type="text" class="bcvh-ward-search" placeholder="Tìm nhanh xã..." />
+              <select id="bcvhWardDistrictFilter" class="filter-select">
+                <option value="all">Lọc theo huyện cũ</option>
+              </select>
+              <button type="button" id="bcvhSelectFilteredBtn" class="btn small">Chọn đang lọc</button>
+              <button type="button" id="bcvhClearWardsBtn" class="btn small ghost-btn">Bỏ chọn</button>
+            </div>
+          </div>
+          <div id="bcvhWardChecklist" class="bcvh-ward-checklist"></div>
+        </div>
+
+        <div id="bcvhFormError" class="login-error" hidden></div>
+
+        <div class="bcvh-modal-footer">
+          <button type="button" id="bcvhCancelBtn" class="btn small">Hủy</button>
+          <button type="submit" id="bcvhSaveBtn" class="btn small success-btn">💾 Lưu Bưu cục Vận hành</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add New Region Modal -->
+  <div id="addRegionModal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-dialog-compact" role="dialog" aria-modal="true" aria-labelledby="addRegionModalTitle">
+      <div class="modal-header">
+        <div>
+          <h3 id="addRegionModalTitle">Thêm mới địa bàn</h3>
+          <div class="modal-subtitle">Nhập link GeoJSON, link Wikipedia (#/map/0) hoặc mã Wikidata (QID)</div>
+        </div>
+        <button type="button" id="addRegionModalCloseBtn" class="mini-btn" title="Đóng (Esc)">✕</button>
+      </div>
+
+      <div class="add-region-modal-body">
+        <form id="extractForm" class="search-bar">
+          <div class="input-wrap">
+            <input
+              id="wikiUrlInput"
+              type="text"
+              placeholder="Dán link GeoJSON, link Wikipedia (#/map/0) hoặc mã QID..."
+              autocomplete="off"
+              required
+            />
+            <button type="button" id="clearBtn" class="icon-btn" title="Xóa ô nhập">✕</button>
+          </div>
+
+          <select id="sourceSelect" title="Nguồn lấy dữ liệu">
+            <option value="auto" selected>Tự động</option>
+            <option value="wikimedia">Wikimedia</option>
+            <option value="osm">OpenStreetMap</option>
+          </select>
+
+          <button type="submit" id="fetchBtn" class="btn primary small-tall">
+            <span class="btn-label">+ Thêm &amp; Lưu</span>
+            <span class="spinner" hidden></span>
+          </button>
+
+          <button type="button" id="toggleBatchBtn" class="btn small-tall" title="Dán nhiều link cùng lúc">
+            Nhiều link
+          </button>
+        </form>
+
+        <div id="batchDrawer" class="batch-drawer inline-batch" hidden>
+          <div class="batch-inner">
+            <div class="batch-header">
+              <strong>Thêm nhiều link cùng lúc</strong>
+              <span>Mỗi dòng 1 link GeoJSON / Wikipedia / mã QID.</span>
+            </div>
+            <textarea
+              id="batchInput"
+              rows="4"
+              placeholder="http://localhost:3000/api/map/lamdong/ward/24823&#10;https://vi.wikipedia.org/wiki/%C4%90%E1%BA%A1_Huoai_(huy%E1%BB%87n)#/map/0"
+            ></textarea>
+            <div class="batch-actions">
+              <button type="button" id="batchLoadBtn" class="btn primary small">Tải &amp; Lưu tất cả</button>
+              <button type="button" id="batchCloseBtn" class="btn small">Đóng</button>
+              <span id="batchProgress" class="batch-progress"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map Preview & Visual Polygon Editor Modal -->
+  <div id="unitMapModal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="unitMapTitle">
+      <div class="modal-header">
+        <div>
+          <h3 id="unitMapTitle">Bản đồ đơn vị hành chính</h3>
+          <div id="unitMapSubtitle" class="modal-subtitle"></div>
+        </div>
+        <div class="modal-header-actions">
+          <button type="button" id="modalSaveGeojsonBtn" class="btn small success-btn" title="Lưu ranh giới đã chỉnh sửa vào SQL Server">💾 Lưu vào DB</button>
+          <button type="button" id="modalRevertBtn" class="btn small danger-solid" title="Hủy chỉnh sửa chưa lưu và khôi phục theo DB">↺ Reset</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
+          <button type="button" id="modalCopyGeojsonBtn" class="btn small ghost-btn" title="Copy GeoJSON hiện tại">📋 Copy</button>
+          <button type="button" id="modalDownloadBtn" class="btn small ghost-btn" title="Tải file .geojson">⬇ .geojson</button>
+          <a id="modalOpenFullMapLink" class="btn small ghost-btn" href="/" target="_blank" rel="noopener" title="Mở trên bản đồ tổng">↗</a>
+          <button type="button" id="unitMapCloseBtn" class="mini-btn" title="Đóng (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-map-wrap">
+        <div id="unitPreviewMap"></div>
+        <div class="map-edit-toolbar" aria-label="Công cụ chỉnh sửa đa giác">
+          <button type="button" id="modalToggleEditBtn" class="btn small primary" title="Bật / tắt chế độ kéo đỉnh">
+            ✏ Sửa đỉnh
+          </button>
+          <button type="button" id="modalToggleTopoBtn" class="btn small active-topo" title="Đồng bộ biên chung: kéo/thêm/xóa nút biên chung tự cập nhật vùng giáp ranh">
+            🔗 Biên chung
+          </button>
+          <button type="button" id="modalDrawPolyBtn" class="btn small" title="Vẽ thêm đa giác mới">
+            + Vẽ vùng
+          </button>
+          <button type="button" id="modalUndoBtn" class="btn small" title="Hoàn tác (Ctrl+Z)" disabled>↶</button>
+          <button type="button" id="modalRedoBtn" class="btn small" title="Làm lại (Ctrl+Y)" disabled>↷</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
+          <button type="button" id="modalToggleNeighborsBtn" class="btn small active-ref" title="Hiện / ẩn vùng giáp ranh">
+            Xã lân cận
+          </button>
+          <button type="button" id="modalToggleOldDistrictsBtn" class="btn small" title="Hiện / ẩn lớp tham chiếu phụ">
+            Huyện cũ
+          </button>
+          <button type="button" id="modalToggleProvincesBtn" class="btn small active-province" title="Hiện / ẩn lớp phủ tối các tỉnh lân cận">
+            Tỉnh lân cận
+          </button>
+          <span id="modalVertexBadge" class="map-vertex-badge">0 đỉnh</span>
+        </div>
+        <div id="modalEditorStatus" class="modal-editor-status map-editor-toast" hidden></div>
+        <div id="mapEditHint" class="map-edit-hint">
+          Kéo chấm để dời · <strong>Chuột phải cạnh</strong>: thêm nút · <strong>Chuột phải nút</strong>: xóa · <code>Ctrl+Z</code>: hoàn tác
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script type="module" src="/js/adminPage.js"></script>
+</body>
+</html>

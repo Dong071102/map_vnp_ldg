@@ -1,0 +1,12 @@
+{
+  "name": "wiki-geojson-backend",
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/backend.test.mjs"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  }
+}
