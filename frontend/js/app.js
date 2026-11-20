@@ -8,6 +8,7 @@ import {
   formatArea,
   computeGeoStats,
 } from './geometry.js';
+import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
 
 const MAX_PREVIEW_CHARS = 70000;
 const PALETTE = [
@@ -54,6 +55,7 @@ const esriSatLayer = L.tileLayer(
   { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
 );
 osmLayer.addTo(map);
+addVietnamIslandsOverlay(map);
 L.control
   .layers(
     { OpenStreetMap: osmLayer, 'Bản đồ sáng (Carto)': cartoLightLayer, 'Ảnh vệ tinh (Esri)': esriSatLayer },

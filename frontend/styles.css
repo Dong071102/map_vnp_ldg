@@ -2137,3 +2137,31 @@ a.admin-nav-btn {
   border-color: #bfdbfe;
   background: #eff6ff;
 }
+
+/* Vietnam Sovereignty Overlay — Hoang Sa & Truong Sa */
+.vn-sovereignty-marker {
+  background: transparent;
+  border: none;
+}
+
+.vn-sovereignty-badge {
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #da251d;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1.5px solid #ffcd00;
+  box-shadow: 0 3px 10px rgba(185, 28, 28, 0.38);
+  cursor: pointer;
+}
+
+.vn-sovereignty-badge .vn-star-ico {
+  display: inline-flex;
+  align-items: center;
+}

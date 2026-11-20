@@ -19,6 +19,7 @@ import {
 import { computeGeoStats } from './geometry.js';
 import { initAdminTab } from './admin.js';
 import { createPolygonEditor } from './polygonEditor.js';
+import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -198,6 +199,7 @@ function ensurePreviewMap() {
     { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
   );
   osm.addTo(previewMap);
+  addVietnamIslandsOverlay(previewMap);
   L.control.layers({ OpenStreetMap: osm, 'Ảnh vệ tinh (Esri)': sat }, {}, { position: 'topright' }).addTo(previewMap);
 
   const provPane = previewMap.createPane('neighborProvincePane');
