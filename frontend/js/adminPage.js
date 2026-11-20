@@ -190,23 +190,34 @@ function syncFromMapEditor(updatedGeojson, { reason, dirtyNeighborNames = [] } =
 function ensurePreviewMap() {
   if (previewMap) return previewMap;
   previewMap = L.map('unitPreviewMap', { zoomControl: true }).setView([11.55, 107.65], 10);
-  const cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-  });
-  const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  const googleVi = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=vi&x={x}&y={y}&z={z}', {
+    subdomains: ['0', '1', '2', '3'],
+    maxZoom: 20,
+    attribution: '&copy; Google Maps',
   });
   const sat = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
   );
-  cartoVoyager.addTo(previewMap);
+  const googleHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&hl=vi&x={x}&y={y}&z={z}', {
+    subdomains: ['0', '1', '2', '3'],
+    maxZoom: 20,
+    attribution: '&copy; Google Maps',
+  });
+  const esriStreet = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
+  );
+  googleVi.addTo(previewMap);
   addVietnamIslandsOverlay(previewMap);
   L.control
     .layers(
-      { 'Bản đồ (Carto)': cartoVoyager, 'Bản đồ sáng (Carto)': cartoLight, 'Ảnh vệ tinh (Esri)': sat },
+      {
+        'Bản đồ tiếng Việt': googleVi,
+        'Ảnh vệ tinh (Esri)': sat,
+        'Vệ tinh + Tên đường': googleHybrid,
+        'Bản đồ đường phố (Esri)': esriStreet,
+      },
       {},
       { position: 'topright' },
     )

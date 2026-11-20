@@ -42,23 +42,34 @@ map.getPane('bcvhZonePane').style.zIndex = 435;
 map.createPane('bcvhPane');
 map.getPane('bcvhPane').style.zIndex = 650;
 
-const cartoVoyagerLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-});
-const cartoLightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
+const googleViMap = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=vi&x={x}&y={y}&z={z}', {
+  subdomains: ['0', '1', '2', '3'],
+  maxZoom: 20,
+  attribution: '&copy; Google Maps',
 });
 const esriSatLayer = L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
 );
-cartoVoyagerLayer.addTo(map);
+const googleHybridVi = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&hl=vi&x={x}&y={y}&z={z}', {
+  subdomains: ['0', '1', '2', '3'],
+  maxZoom: 20,
+  attribution: '&copy; Google Maps',
+});
+const esriStreetLayer = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
+);
+googleViMap.addTo(map);
 addVietnamIslandsOverlay(map);
 L.control
   .layers(
-    { 'Bản đồ (Carto)': cartoVoyagerLayer, 'Bản đồ sáng (Carto)': cartoLightLayer, 'Ảnh vệ tinh (Esri)': esriSatLayer },
+    {
+      'Bản đồ tiếng Việt': googleViMap,
+      'Ảnh vệ tinh (Esri)': esriSatLayer,
+      'Vệ tinh + Tên đường': googleHybridVi,
+      'Bản đồ đường phố (Esri)': esriStreetLayer,
+    },
     {},
     { position: 'topright' },
   )
