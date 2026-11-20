@@ -35,7 +35,7 @@ export const config = {
     port: Number(process.env.DB_PORT) || 1433,
     user: process.env.DB_USER || 'sa',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'getjson',
+    database: process.env.DB_NAME || 'map_vnp_ldg',
     encrypt: String(process.env.DB_ENCRYPT || 'false').toLowerCase() === 'true',
   },
 };

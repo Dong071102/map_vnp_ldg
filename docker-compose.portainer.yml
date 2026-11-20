@@ -1,6 +1,6 @@
 services:
   lamdong-map:
-    image: ${IMAGE_NAME:-ghcr.io/dong071102/map_vnp_ldg:latest}
+    image: ghcr.io/dong071102/map_vnp_ldg:latest
     container_name: lamdong-map
     restart: unless-stopped
     ports:
@@ -13,20 +13,8 @@ services:
       DB_PORT: "${DB_PORT:-1433}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      DB_NAME: "${DB_NAME:-getjson}"
+      DB_NAME: "${DB_NAME:-map_vnp_ldg}"
       DB_ENCRYPT: "${DB_ENCRYPT:-false}"
       ADMIN_USER: "${ADMIN_USER:-lamdong}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
