@@ -190,17 +190,27 @@ function syncFromMapEditor(updatedGeojson, { reason, dirtyNeighborNames = [] } =
 function ensurePreviewMap() {
   if (previewMap) return previewMap;
   previewMap = L.map('unitPreviewMap', { zoomControl: true }).setView([11.55, 107.65], 10);
-  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  });
+  const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
   });
   const sat = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
   );
-  osm.addTo(previewMap);
+  cartoVoyager.addTo(previewMap);
   addVietnamIslandsOverlay(previewMap);
-  L.control.layers({ OpenStreetMap: osm, 'Ảnh vệ tinh (Esri)': sat }, {}, { position: 'topright' }).addTo(previewMap);
+  L.control
+    .layers(
+      { 'Bản đồ (Carto)': cartoVoyager, 'Bản đồ sáng (Carto)': cartoLight, 'Ảnh vệ tinh (Esri)': sat },
+      {},
+      { position: 'topright' },
+    )
+    .addTo(previewMap);
 
   const provPane = previewMap.createPane('neighborProvincePane');
   provPane.style.zIndex = '320';

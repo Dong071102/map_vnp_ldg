@@ -42,9 +42,9 @@ map.getPane('bcvhZonePane').style.zIndex = 435;
 map.createPane('bcvhPane');
 map.getPane('bcvhPane').style.zIndex = 650;
 
-const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+const cartoVoyagerLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors',
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
 });
 const cartoLightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
@@ -54,11 +54,11 @@ const esriSatLayer = L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
 );
-osmLayer.addTo(map);
+cartoVoyagerLayer.addTo(map);
 addVietnamIslandsOverlay(map);
 L.control
   .layers(
-    { OpenStreetMap: osmLayer, 'Bản đồ sáng (Carto)': cartoLightLayer, 'Ảnh vệ tinh (Esri)': esriSatLayer },
+    { 'Bản đồ (Carto)': cartoVoyagerLayer, 'Bản đồ sáng (Carto)': cartoLightLayer, 'Ảnh vệ tinh (Esri)': esriSatLayer },
     {},
     { position: 'topright' },
   )
