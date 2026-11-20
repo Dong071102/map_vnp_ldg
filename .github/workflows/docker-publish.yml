@@ -64,6 +64,11 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trigger Portainer Stack Webhook (optional)
-        if: ${{ secrets.PORTAINER_WEBHOOK_URL != '' }}
+        env:
+          PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
         run: |
-          curl -fsS -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
+          if [ -n "$PORTAINER_WEBHOOK_URL" ]; then
+            curl -fsS -X POST "$PORTAINER_WEBHOOK_URL"
+          else
+            echo "PORTAINER_WEBHOOK_URL not set, skipping webhook."
+          fi
