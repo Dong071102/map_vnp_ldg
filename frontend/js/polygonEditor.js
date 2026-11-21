@@ -186,17 +186,6 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
     }),
   });
 
-  const eraserBrushMarker = L.marker([0, 0], {
-    interactive: false,
-    pane: 'polyEditorGhostPane',
-    icon: L.divIcon({
-      className: 'poly-eraser-brush',
-      html: '<span></span>',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-    }),
-  });
-
   let geojson = { type: 'FeatureCollection', features: [] };
   let color = '#2563eb';
   let editEnabled = true;
@@ -206,8 +195,7 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
   let drawPoints = [];
   let drawCursorLatLng = null;
 
-  // Alt + Left-Mouse-Button batch vertex eraser state
-  const ALT_ERASE_RADIUS_PX = 18;
+  // Alt + Left-Mouse-Button exact hover vertex eraser state
   let altErasing = false;
   let altErasePushedUndo = false;
   let altErasedCount = 0;
@@ -605,9 +593,10 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
 
             const el = marker.getElement();
             if (el) {
+              el.dataset.vref = vKey;
               el.title = isShared
-                ? `Đỉnh biên chung với: ${Array.from(sharedWith).join(', ')} · Kéo chuột trái để chỉnh · Alt+chuột trái quét để xóa`
-                : `Đỉnh #${vertexIdx + 1} · Kéo chuột trái để chỉnh · Alt+chuột trái quét để xóa`;
+                ? `Đỉnh biên chung với: ${Array.from(sharedWith).join(', ')} · Kéo chuột trái để chỉnh · Giữ Alt+chuột trái rê qua để xóa`
+                : `Đỉnh #${vertexIdx + 1} · Kéo chuột trái để chỉnh · Giữ Alt+chuột trái rê qua để xóa`;
             }
 
             let dragPushedUndo = false;
@@ -862,66 +851,29 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
     onStatus?.('Đã hủy vẽ vùng mới.', 'warn');
   }
 
-  // --- Alt + Left-Mouse-Button Brush Eraser (hover sweep to batch-delete vertices) ---
-  function hideEraserBrush() {
-    if (map.hasLayer(eraserBrushMarker)) map.removeLayer(eraserBrushMarker);
-  }
+  // --- Alt + Left-Mouse-Button Exact-Hover Vertex Eraser (deletes ONLY when hovering directly on a point) ---
+  function eraseHoveredVertex(e) {
+    const hitEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.poly-vertex-handle');
+    const vref = hitEl?.dataset?.vref;
+    if (!vref) return;
 
-  function updateEraserBrushAtEvent(e) {
-    const ll = map.mouseEventToLatLng(e);
-    if (!map.hasLayer(eraserBrushMarker)) eraserBrushMarker.addTo(map);
-    eraserBrushMarker.setLatLng(ll);
-  }
+    const [fIdx, pIdx, rIdx, vIdx] = vref.split(':').map(Number);
+    const rawRing = getRingFromFc(geojson, fIdx, pIdx, rIdx);
+    const liveUnique = getUniqueRingCoords(rawRing);
+    if (liveUnique.length <= 3 || vIdx < 0 || vIdx >= liveUnique.length) return;
 
-  function eraseVerticesNearEvent(e) {
-    const pt = map.mouseEventToContainerPoint(e);
-    const rSq = ALT_ERASE_RADIUS_PX * ALT_ERASE_RADIUS_PX;
-    let erasedNow = 0;
-
-    // Inspect every polygon ring and delete vertices within brush radius (keeping >= 3 vertices per ring)
-    forEachPolygonRing(geojson, (fIdx, pIdx, rIdx, rawRing) => {
-      const liveUnique = getUniqueRingCoords(rawRing);
-      if (liveUnique.length <= 3) return;
-
-      const toDeleteIndices = [];
-      for (let vIdx = 0; vIdx < liveUnique.length; vIdx++) {
-        const [lng, lat] = liveUnique[vIdx];
-        const vPt = map.latLngToContainerPoint([lat, lng]);
-        const dx = vPt.x - pt.x;
-        const dy = vPt.y - pt.y;
-        if (dx * dx + dy * dy <= rSq) {
-          toDeleteIndices.push(vIdx);
-        }
-      }
-      if (toDeleteIndices.length === 0) return;
-
-      // Never collapse ring below 3 vertices
-      const maxRemovable = liveUnique.length - 3;
-      const cut = toDeleteIndices.slice(0, maxRemovable);
-      if (cut.length === 0) return;
-
-      if (!altErasePushedUndo) {
-        pushUndo();
-        altErasePushedUndo = true;
-      }
-
-      // Delete from highest index downward so indices stay valid
-      for (let i = cut.length - 1; i >= 0; i--) {
-        const idx = cut[i];
-        const targetCoord = liveUnique[idx];
-        liveUnique.splice(idx, 1);
-        erasedNow++;
-        altErasedCount++;
-        const synced = deleteMatchingNeighborVertices(targetCoord);
-        for (const name of synced) altErasedSyncedNames.add(name);
-      }
-      setRingOnFc(geojson, fIdx, pIdx, rIdx, liveUnique);
-    });
-
-    if (erasedNow > 0) {
-      renderAll();
-      updateEraserBrushAtEvent(e);
+    if (!altErasePushedUndo) {
+      pushUndo();
+      altErasePushedUndo = true;
     }
+
+    const targetCoord = liveUnique[vIdx];
+    liveUnique.splice(vIdx, 1);
+    setRingOnFc(geojson, fIdx, pIdx, rIdx, liveUnique);
+    altErasedCount++;
+    const synced = deleteMatchingNeighborVertices(targetCoord);
+    for (const name of synced) altErasedSyncedNames.add(name);
+    renderAll();
   }
 
   function onAltEraseMove(e) {
@@ -931,14 +883,12 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
       return;
     }
     e.preventDefault();
-    updateEraserBrushAtEvent(e);
-    eraseVerticesNearEvent(e);
+    eraseHoveredVertex(e);
   }
 
   function stopAltErase() {
     if (!altErasing) return;
     altErasing = false;
-    hideEraserBrush();
     map.getContainer().classList.remove('is-alt-erasing');
     map.dragging.enable();
     window.removeEventListener('mousemove', onAltEraseMove, true);
@@ -976,8 +926,7 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
       altErasedSyncedNames.clear();
       map.dragging.disable();
       map.getContainer().classList.add('is-alt-erasing');
-      updateEraserBrushAtEvent(e);
-      eraseVerticesNearEvent(e);
+      eraseHoveredVertex(e);
       window.addEventListener('mousemove', onAltEraseMove, true);
       window.addEventListener('mouseup', stopAltErase, true);
       window.addEventListener('blur', stopAltErase);
