@@ -115,6 +115,35 @@ export function buildCombinedPolygonFeature(fc) {
   return { type: 'Feature', properties: {}, geometry: { type: 'MultiPolygon', coordinates: polys } };
 }
 
+/**
+ * Strip FeatureCollection/Feature wrappers and return bare GeoJSON Geometry:
+ * { "type": "Polygon" | "MultiPolygon", "coordinates": [...] }
+ */
+export function extractBareGeometry(geojson) {
+  if (!geojson || typeof geojson !== 'object') return null;
+  if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon') {
+    return { type: geojson.type, coordinates: geojson.coordinates };
+  }
+  if (geojson.type === 'Feature' && geojson.geometry) {
+    return extractBareGeometry(geojson.geometry);
+  }
+  if (geojson.type === 'FeatureCollection' && Array.isArray(geojson.features)) {
+    const combined = buildCombinedPolygonFeature(geojson);
+    if (combined?.geometry) return combined.geometry;
+    const firstGeom = geojson.features.find((f) => f?.geometry)?.geometry;
+    return firstGeom || null;
+  }
+  return geojson.coordinates ? { type: geojson.type, coordinates: geojson.coordinates } : null;
+}
+
+/**
+ * Serialize bare GeoJSON Geometry on a single line (no newlines) for clean pasting into Excel cells.
+ */
+export function serializeGeometryOneLine(geojson) {
+  const geom = extractBareGeometry(geojson);
+  return geom ? JSON.stringify(geom) : '';
+}
+
 export function bboxesOverlap(a, b) {
   if (!a || !b) return false;
   return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);

@@ -7,6 +7,8 @@ import {
   isPolygonFeature,
   formatArea,
   computeGeoStats,
+  extractBareGeometry,
+  serializeGeometryOneLine,
 } from './geometry.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
 
@@ -379,11 +381,12 @@ function updateRegionStyle(region) {
 
 async function copyRegionGeojson(region) {
   const data = getFilteredRegionGeojson(region);
-  const text = prettyToggle.checked ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+  const text = serializeGeometryOneLine(data);
+  if (!text) return;
   const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
   try {
     await copyTextToClipboard(text);
-    const msg = `Đã copy GeoJSON "${region.meta.name}" (${sizeKb} KB) ✓`;
+    const msg = `Đã copy GeoJSON 1 dòng "${region.meta.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB) ✓`;
     setStatus(msg, 'success');
     showMapCopyToast(msg, false);
     // Brief visual flash on the copied polygon
@@ -661,11 +664,12 @@ async function copyBcvhServiceGeojson(office) {
     showMapCopyToast(`"${office?.name || 'BCVH'}" chưa có GeoJSON vùng phục vụ.`, true);
     return;
   }
-  const text = prettyToggle.checked ? JSON.stringify(office.serviceGeojson, null, 2) : JSON.stringify(office.serviceGeojson);
+  const text = serializeGeometryOneLine(office.serviceGeojson);
+  if (!text) return;
   const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
   try {
     await copyTextToClipboard(text);
-    const msg = `Đã copy GeoJSON vùng phục vụ "${office.name}" (${sizeKb} KB) ✓`;
+    const msg = `Đã copy GeoJSON 1 dòng "${office.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB) ✓`;
     setStatus(msg, 'success');
     showMapCopyToast(msg, false);
   } catch {
@@ -977,7 +981,8 @@ function getExportGeojson() {
 
 function updateJsonOutput() {
   const data = getExportGeojson();
-  if (!data || !data.features?.length) {
+  const geom = extractBareGeometry(data);
+  if (!geom) {
     copyBtn.disabled = true;
     downloadGeojsonBtn.disabled = true;
     downloadJsonBtn.disabled = true;
@@ -989,11 +994,11 @@ function updateJsonOutput() {
   downloadGeojsonBtn.disabled = false;
   downloadJsonBtn.disabled = false;
 
-  const serialized = prettyToggle.checked ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+  const serialized = prettyToggle.checked ? JSON.stringify(geom, null, 2) : JSON.stringify(geom);
   const sizeKb = (new Blob([serialized]).size / 1024).toFixed(1);
   if (serialized.length > MAX_PREVIEW_CHARS) {
     jsonNote.hidden = false;
-    jsonNote.textContent = `GeoJSON (${data.features.length} feature, ${sizeKb} KB). Đang hiển thị trước ${MAX_PREVIEW_CHARS.toLocaleString('vi-VN')} ký tự — bấm Copy hoặc Tải file để lấy đầy đủ.`;
+    jsonNote.textContent = `${geom.type} (${serialized.length.toLocaleString('vi-VN')} ký tự, ${sizeKb} KB). Đang hiển thị trước ${MAX_PREVIEW_CHARS.toLocaleString('vi-VN')} ký tự — bấm Copy để lấy đủ trên 1 dòng.`;
     jsonPreview.textContent = `${serialized.slice(0, MAX_PREVIEW_CHARS)}\n... [đã rút gọn hiển thị]`;
   } else {
     jsonNote.hidden = true;
@@ -1112,8 +1117,8 @@ prettyToggle.addEventListener('change', updateJsonOutput);
 
 copyBtn.addEventListener('click', async () => {
   const data = getExportGeojson();
-  if (!data) return;
-  const text = prettyToggle.checked ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+  const text = serializeGeometryOneLine(data);
+  if (!text) return;
   try {
     await copyTextToClipboard(text);
     const old = copyBtn.textContent;
@@ -1126,8 +1131,9 @@ copyBtn.addEventListener('click', async () => {
 
 function downloadFile(ext) {
   const data = getExportGeojson();
-  if (!data) return;
-  const text = prettyToggle.checked ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+  const geom = extractBareGeometry(data);
+  if (!geom) return;
+  const text = prettyToggle.checked ? JSON.stringify(geom, null, 2) : JSON.stringify(geom);
   const blob = new Blob([text], { type: 'application/geo+json;charset=utf-8' });
   let filename = `regions-merged-${regions.filter((r) => isRegionLayerEnabled(r)).length}.${ext}`;
   if (exportMode === 'selected') {

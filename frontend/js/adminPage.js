@@ -16,7 +16,7 @@ import {
   deleteBcvhOffice,
   locateWardByCoords,
 } from './api.js';
-import { computeGeoStats } from './geometry.js';
+import { computeGeoStats, serializeGeometryOneLine } from './geometry.js';
 import { initAdminTab } from './admin.js';
 import { createPolygonEditor } from './polygonEditor.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
@@ -708,8 +708,8 @@ modalSaveGeojsonBtn.addEventListener('click', async () => {
 
 modalCopyGeojsonBtn.addEventListener('click', async () => {
   const geo = polygonEditor?.getGeojson() || currentPreviewGeojson;
-  if (!geo) return;
-  const text = JSON.stringify(geo, null, 2);
+  const text = serializeGeometryOneLine(geo);
+  if (!text) return;
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text);
