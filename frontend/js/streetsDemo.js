@@ -1,12 +1,12 @@
 import { createPolygonEditor } from './polygonEditor.js';
 import { serializeGeometryOneLine } from './geometry.js';
 import { notify, confirmNoti } from './notify.js';
+import { createAuthMenu, hasAuthPerm } from './authMenu.js';
 
 const $ = (id) => document.getElementById(id);
 
 const statusBanner = $('statusBanner');
-const adminBadge = $('adminBadge');
-const adminLoginLink = $('adminLoginLink');
+const authMenu = createAuthMenu($('authMenuHost'), { showAdminLink: true });
 const downloadWardStreetsLink = $('downloadWardStreetsLink');
 const fitWardBtn = $('fitWardBtn');
 const toggleLabelsBtn = $('toggleLabelsBtn');
@@ -1154,21 +1154,12 @@ downloadMergedBtn.addEventListener('click', () => {
 });
 
 function applyAdminPermissionsUI() {
-  if (adminBadge) {
-    adminBadge.textContent = adminUsername
-      ? adminRoleLabel
-        ? `${adminUsername} · ${adminRoleLabel}`
-        : adminUsername
-      : '';
-    adminBadge.hidden = !isLoggedIn;
-  }
-  if (adminLoginLink) adminLoginLink.hidden = isLoggedIn;
   if (saveRouteRow) saveRouteRow.hidden = !canEditRoutes;
   if (adminOnlySaveHint) {
     adminOnlySaveHint.hidden = canEditRoutes;
     adminOnlySaveHint.innerHTML = isLoggedIn
-      ? `Tài khoản <strong>${(adminUsername || '').replace(/</g, '&lt;')}</strong> (${(adminRoleLabel || '').replace(/</g, '&lt;')}) chỉ có quyền xem khu vực phát.`
-      : 'Đăng nhập tài khoản có quyền sửa khu vực phát tại <a href="/admin">Quản trị</a> để lưu hoặc chỉnh sửa.';
+      ? `Vai trò <strong>${(adminRoleLabel || '').replace(/</g, '&lt;')}</strong> (${(adminUsername || '').replace(/</g, '&lt;')}) chỉ có quyền xem khu vực phát.`
+      : 'Đang ở chế độ <strong>Khách (Chỉ xem)</strong>. <a href="/admin">Đăng nhập</a> tài khoản có quyền sửa khu vực phát để lưu hoặc chỉnh sửa.';
   }
   if (savedRoutesEmpty && !canEditRoutes) {
     savedRoutesEmpty.textContent = 'Chưa có khu vực phát nào trong xã/phường này.';
@@ -1181,15 +1172,17 @@ async function init() {
     fetch('/api/auth/me').catch(() => null),
     fetch('/api/streets/wards'),
   ]);
+  let auth = null;
   if (authRes?.ok) {
-    const auth = await authRes.json().catch(() => ({}));
+    auth = await authRes.json().catch(() => null);
+  }
+  authMenu.update(auth);
+  if (auth) {
     isLoggedIn = Boolean(auth.authenticated);
     adminUsername = auth.username || null;
     adminRoleLabel = auth.roleLabel || null;
-    const perms = Array.isArray(auth.permissions) ? auth.permissions : [];
-    const isSuper = auth.role === 'super_admin';
-    canEditRoutes = isLoggedIn && (isSuper || perms.includes('edit_routes'));
-    canViewRoutes = !isLoggedIn || isSuper || perms.includes('view_routes') || canEditRoutes;
+    canEditRoutes = isLoggedIn && hasAuthPerm(auth, 'edit_routes');
+    canViewRoutes = hasAuthPerm(auth, 'view_routes') || canEditRoutes;
   }
   applyAdminPermissionsUI();
 

@@ -33,6 +33,7 @@
 
     <div class="topbar-right">
       <div id="statusBanner" class="status-banner" hidden></div>
+      <div id="authMenuHost"></div>
     </div>
   </header>
 
@@ -86,7 +87,7 @@
         <div class="rail-toolbar">
           <button type="button" id="clearBcvhFocusBtn" class="btn small" hidden>Hiện tất cả</button>
           <a id="exportAllBcvhExcelBtn" class="btn small export-bcvh-excel-btn" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">Xuất Excel tất cả</a>
-          <a class="btn small" href="/admin#bcvh" style="margin-left:auto;">Quản lý</a>
+          <a id="manageBcvhLink" class="btn small" href="/admin#bcvh" style="margin-left:auto;" hidden>Quản lý BCVH</a>
         </div>
         <div class="rail-scroll">
           <div id="bcvhListEmpty" class="rail-empty">

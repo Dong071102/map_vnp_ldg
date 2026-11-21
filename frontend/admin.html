@@ -34,8 +34,7 @@
     <div class="topbar-right">
       <div id="statusBanner" class="status-banner" hidden></div>
       <span id="dbStatusPill" class="db-pill danger" hidden>SQL Server: Mất kết nối</span>
-      <span id="adminUserBadge" class="admin-user-chip" hidden></span>
-      <button type="button" id="logoutBtn" class="btn small ghost-btn" hidden>Đăng xuất</button>
+      <div id="authMenuHost"></div>
     </div>
   </header>
 
@@ -44,8 +43,8 @@
     <div class="login-card">
       <div class="login-header">
         <div class="login-icon">🔐</div>
-        <h2>Đăng nhập quản trị</h2>
-        <p>Quản lý bản đồ ranh giới 124 ĐVHC cấp xã &amp; 30 huyện cũ tỉnh Lâm Đồng.</p>
+        <h2>Đăng nhập tài khoản</h2>
+        <p>Chế độ Khách chỉ xem bản đồ &amp; khu vực phát. Đăng nhập tài khoản được cấp để mở quyền quản lý BCVH, khu vực phát hoặc địa giới.</p>
       </div>
 
       <form id="loginForm" class="login-form">
@@ -310,6 +309,7 @@
           <div class="form-field">
             <label for="userRoleSelect">Vai trò (Role)</label>
             <select id="userRoleSelect" class="filter-select bcvh-select"></select>
+            <span id="userRoleDesc" class="field-hint"></span>
           </div>
         </div>
 

@@ -17,29 +17,42 @@ export const ALL_PERMISSIONS = [
 
 export const VALID_PERMISSION_SET = new Set(ALL_PERMISSIONS.map((p) => p.key));
 
+export const GUEST_ROLE = {
+  key: 'guest',
+  label: 'Khách (Chỉ xem)',
+  description: 'Xem bản đồ địa giới, tra cứu BCVH và khu vực phát; cần đăng nhập để tạo hoặc chỉnh sửa.',
+  permissions: ['view_map', 'view_bcvh', 'view_routes'],
+};
+
 export const ROLE_PRESETS = {
   super_admin: {
     label: 'Quản trị toàn quyền',
+    description: 'Toàn quyền quản trị bản đồ địa giới, BCVH, khu vực phát và tài khoản phân quyền.',
     permissions: ALL_PERMISSIONS.map((p) => p.key),
   },
   bcvh_manager: {
     label: 'Quản lý BCVH',
+    description: 'Xem bản đồ & khu vực phát; toàn quyền thêm, sửa, xóa và xuất Excel Bưu cục Vận hành.',
     permissions: ['view_map', 'view_bcvh', 'edit_bcvh', 'view_routes'],
   },
   route_manager: {
     label: 'Quản lý Khu vực phát',
+    description: 'Xem bản đồ & BCVH; toàn quyền gộp, tạo, chỉnh sửa đỉnh và xóa khu vực phát.',
     permissions: ['view_map', 'view_bcvh', 'view_routes', 'edit_routes'],
   },
   boundary_editor: {
     label: 'Biên tập địa giới',
+    description: 'Xem BCVH & khu vực phát; chỉnh sửa ranh giới 124 xã/phường và 30 huyện cũ.',
     permissions: ['view_map', 'view_bcvh', 'view_routes', 'edit_admin_boundaries'],
   },
   viewer: {
     label: 'Chỉ xem',
+    description: 'Đăng nhập ở chế độ chỉ xem bản đồ, danh sách BCVH (xuất Excel) và khu vực phát.',
     permissions: ['view_map', 'view_bcvh', 'view_routes'],
   },
   custom: {
     label: 'Tùy chỉnh quyền',
+    description: 'Cấp từng quyền riêng lẻ theo nhu cầu công việc thực tế.',
     permissions: ['view_map'],
   },
 };

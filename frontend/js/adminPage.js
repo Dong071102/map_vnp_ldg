@@ -25,13 +25,19 @@ import { initAdminTab } from './admin.js';
 import { createPolygonEditor } from './polygonEditor.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
 import { notify, confirmNoti } from './notify.js';
+import { createAuthMenu } from './authMenu.js';
 
 const $ = (id) => document.getElementById(id);
 
 const statusBanner = $('statusBanner');
 const dbStatusPill = $('dbStatusPill');
-const adminUserBadge = $('adminUserBadge');
-const logoutBtn = $('logoutBtn');
+const authMenu = createAuthMenu($('authMenuHost'), {
+  showAdminLink: false,
+  onLogout: () => {
+    setStatus('Đã đăng xuất khỏi trang quản trị.', 'success');
+    showLoginScreen();
+  },
+});
 
 const loginScreen = $('loginScreen');
 const loginForm = $('loginForm');
@@ -123,6 +129,7 @@ const userPasswordLabel = $('userPasswordLabel');
 const userPasswordInput = $('userPasswordInput');
 const userPasswordHint = $('userPasswordHint');
 const userRoleSelect = $('userRoleSelect');
+const userRoleDesc = $('userRoleDesc');
 const userActiveCheckbox = $('userActiveCheckbox');
 const userPermsChecklist = $('userPermsChecklist');
 const userFormError = $('userFormError');
@@ -1411,6 +1418,7 @@ function renderUserPermsChecklist(selectedPerms = [], isSuper = false) {
         }
       }
       if (userRoleSelect) userRoleSelect.value = matched;
+      updateUserRoleDesc(matched);
     });
     const span = document.createElement('span');
     span.textContent = p.label;
@@ -1530,6 +1538,11 @@ async function loadAdminUsers(force = false) {
   }
 }
 
+function updateUserRoleDesc(roleKey) {
+  if (!userRoleDesc) return;
+  userRoleDesc.textContent = rbacRoles[roleKey]?.description || '';
+}
+
 function openUserModal(existing = null) {
   editingUserId = existing?.id || null;
   populateRoleDropdowns();
@@ -1542,7 +1555,9 @@ function openUserModal(existing = null) {
   userPasswordLabel.textContent = editingUserId ? 'Đặt lại mật khẩu (tùy chọn)' : 'Mật khẩu *';
   if (userPasswordHint) userPasswordHint.hidden = !editingUserId;
   const role = existing?.role || 'viewer';
-  if (userRoleSelect) userRoleSelect.value = rbacRoles[role] ? role : 'custom';
+  const resolvedRole = rbacRoles[role] ? role : 'custom';
+  if (userRoleSelect) userRoleSelect.value = resolvedRole;
+  updateUserRoleDesc(resolvedRole);
   if (userActiveCheckbox) userActiveCheckbox.checked = existing ? Boolean(existing.isActive) : true;
   renderUserPermsChecklist(
     existing?.permissions || rbacRoles[role]?.permissions || ['view_map'],
@@ -1559,6 +1574,7 @@ function closeUserModal() {
 
 userRoleSelect?.addEventListener('change', () => {
   const role = userRoleSelect.value;
+  updateUserRoleDesc(role);
   const preset = rbacRoles[role];
   if (role === 'super_admin') {
     renderUserPermsChecklist(
@@ -1666,14 +1682,13 @@ function applyAdminRoleUI() {
   if (!canEditBoundaries && adminAdvancedPanel) adminAdvancedPanel.hidden = true;
   if (openNewBcvhBtn) openNewBcvhBtn.hidden = !canEditBcvh;
 
-  const roleText = currentAuth?.roleLabel || rbacRoles[currentAuth?.role]?.label || currentAuth?.role || '';
-  adminUserBadge.textContent = roleText ? `${currentAuth.username} · ${roleText}` : currentAuth.username;
+  authMenu.update(currentAuth);
 }
 
 function showAuthenticated(authInfo) {
   currentAuth =
     typeof authInfo === 'string'
-      ? { username: authInfo, role: 'super_admin', roleLabel: 'Quản trị toàn quyền', permissions: [] }
+      ? { authenticated: true, username: authInfo, role: 'super_admin', roleLabel: 'Quản trị toàn quyền', permissions: [] }
       : authInfo;
   if (currentAuth?.roles) rbacRoles = currentAuth.roles;
   if (currentAuth?.allPermissions) rbacAllPermissions = currentAuth.allPermissions;
@@ -1681,8 +1696,6 @@ function showAuthenticated(authInfo) {
   loginScreen.hidden = true;
   adminView.hidden = false;
   applyAdminRoleUI();
-  adminUserBadge.hidden = false;
-  logoutBtn.hidden = false;
 
   adminTableController.onActivate();
   loadBcvhOffices(true);
@@ -1699,14 +1712,13 @@ function showAuthenticated(authInfo) {
   }
 }
 
-function showLoginScreen() {
+function showLoginScreen(guestAuth = null) {
   currentAuth = null;
   usersList = [];
   usersLoaded = false;
   adminView.hidden = true;
   loginScreen.hidden = false;
-  adminUserBadge.hidden = true;
-  logoutBtn.hidden = true;
+  authMenu.update(guestAuth);
   loginError.hidden = true;
   loginUsername.focus();
 }
@@ -1755,15 +1767,6 @@ loginForm.addEventListener('submit', async (e) => {
   } finally {
     loginSubmitBtn.disabled = false;
     loginSubmitBtn.textContent = 'Đăng nhập';
-  }
-});
-
-logoutBtn.addEventListener('click', async () => {
-  try {
-    await logoutAdmin();
-  } finally {
-    setStatus('Đã đăng xuất khỏi trang quản trị.', 'success');
-    showLoginScreen();
   }
 });
 
@@ -1859,7 +1862,7 @@ batchLoadBtn.addEventListener('click', async () => {
     if (me.authenticated) {
       showAuthenticated(me);
     } else {
-      showLoginScreen();
+      showLoginScreen(me);
     }
   } catch {
     showLoginScreen();

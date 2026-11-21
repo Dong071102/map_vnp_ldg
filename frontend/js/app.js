@@ -11,6 +11,7 @@ import {
 } from './geometry.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
 import { notify } from './notify.js';
+import { createAuthMenu, hasAuthPerm } from './authMenu.js';
 
 const MAX_PREVIEW_CHARS = 70000;
 const PALETTE = [
@@ -1212,10 +1213,19 @@ function downloadFile(ext) {
 downloadGeojsonBtn.addEventListener('click', () => downloadFile('geojson'));
 downloadJsonBtn.addEventListener('click', () => downloadFile('json'));
 
-// --- Startup: load from SQL Server, optional ?region=<id> deep-link ---
+// --- Startup: load auth role menu + SQL Server regions, optional ?region=<id> deep-link ---
+const authMenu = createAuthMenu($('authMenuHost'), { showAdminLink: true });
+const manageBcvhLink = $('manageBcvhLink');
+
 (async () => {
   const focusDbId = Number(new URLSearchParams(window.location.search).get('region')) || null;
-  await loadFromDatabase({ fitAfter: !focusDbId });
+  const [auth] = await Promise.all([
+    authMenu.load(),
+    loadFromDatabase({ fitAfter: !focusDbId }),
+  ]);
+  if (manageBcvhLink) {
+    manageBcvhLink.hidden = !(auth?.authenticated && hasAuthPerm(auth, 'edit_bcvh'));
+  }
   if (focusDbId) {
     const target = regions.find((r) => r.dbId === focusDbId);
     if (target) {

@@ -2880,3 +2880,232 @@ a.btn.is-incomplete:hover {
   background: #dcfce7;
   color: #166534;
 }
+
+/* --- Unified Topbar Role Pill & Permissions Popover --- */
+.auth-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.role-pill-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.role-pill-btn:hover {
+  background: #f1f5f9;
+  border-color: var(--border-strong);
+}
+
+.role-pill-btn .role-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.role-pill-btn .role-pill-sep {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.role-pill-btn .role-pill-caret {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+.role-pill-btn.role-guest {
+  background: #f8fafc;
+  color: #475569;
+  border-style: dashed;
+}
+
+.role-pill-btn.role-super_admin {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+.role-pill-btn.role-super_admin .role-dot { background: #d97706; }
+
+.role-pill-btn.role-bcvh_manager {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+.role-pill-btn.role-bcvh_manager .role-dot { background: #ea580c; }
+
+.role-pill-btn.role-route_manager {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+.role-pill-btn.role-route_manager .role-dot { background: #2563eb; }
+
+.role-pill-btn.role-boundary_editor {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+  color: #5b21b6;
+}
+.role-pill-btn.role-boundary_editor .role-dot { background: #7c3aed; }
+
+.role-pill-btn.role-viewer .role-dot { background: #64748b; }
+.role-pill-btn.role-custom {
+  background: #ecfeff;
+  border-color: #a5f3fc;
+  color: #155e75;
+}
+.role-pill-btn.role-custom .role-dot { background: #0891b2; }
+
+.role-badge.role-guest {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px dashed #cbd5e1;
+}
+
+.role-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(330px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16);
+  z-index: 9500;
+  overflow: hidden;
+  animation: notiSlideIn 0.12s ease-out;
+}
+
+.role-popover-head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.role-popover-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.role-popover-title-row strong {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.role-popover-sub {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.role-popover-sub code {
+  background: #e2e8f0;
+  color: #1e293b;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.role-popover-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #475569;
+}
+
+.role-popover-section {
+  padding: 10px 14px;
+}
+
+.role-popover-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+}
+
+.role-perm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.role-perm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.role-perm-row.is-allowed {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.role-perm-row.is-denied {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.role-perm-mark {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.role-perm-row.is-allowed .role-perm-mark {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.role-perm-row.is-denied .role-perm-mark {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.role-popover-footer {
+  padding: 9px 14px;
+  border-top: 1px solid var(--border);
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.role-guest-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}

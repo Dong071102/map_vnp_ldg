@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.mjs';
 import {
   ALL_PERMISSIONS,
+  GUEST_ROLE,
   ROLE_PRESETS,
   verifyCredentials,
   verifyPassword,
@@ -225,13 +226,19 @@ export function createAppServer() {
       // --- Auth & RBAC Endpoints ---
       if (pathname === '/api/auth/me' && req.method === 'GET') {
         const session = getSessionFromRequest(req);
+        const isAuthed = Boolean(session);
+        const roleKey = isAuthed ? session.role : GUEST_ROLE.key;
+        const roleMeta = isAuthed ? ROLE_PRESETS[session.role] : GUEST_ROLE;
         sendJson(res, 200, {
-          authenticated: Boolean(session),
+          authenticated: isAuthed,
+          isGuest: !isAuthed,
           username: session?.username || null,
-          fullName: session?.fullName || null,
-          role: session?.role || null,
-          roleLabel: session?.role ? ROLE_PRESETS[session.role]?.label || session.role : null,
-          permissions: session?.permissions || [],
+          fullName: session?.fullName || (isAuthed ? session.username : 'Khách truy cập'),
+          role: roleKey,
+          roleLabel: roleMeta?.label || roleKey,
+          roleDescription: roleMeta?.description || '',
+          permissions: isAuthed ? session.permissions || [] : GUEST_ROLE.permissions,
+          guestRole: GUEST_ROLE,
           roles: ROLE_PRESETS,
           allPermissions: ALL_PERMISSIONS,
         });
