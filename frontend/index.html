@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bản đồ Địa giới Lâm Đồng 2025 — GeoJSON</title>
+  <title>Bản đồ Địa giới Lâm Đồng 2025</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -14,24 +14,25 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
+    <a class="brand" href="/">
       <div class="brand-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21 3 6"></polygon>
           <line x1="9" y1="3" x2="9" y2="18"></line>
           <line x1="15" y1="6" x2="15" y2="21"></line>
         </svg>
       </div>
-      <div>
-        <h1>Bản đồ Lâm Đồng 2025</h1>
-        <p>124 Xã/Phường mới · 30 Huyện/TP cũ (tham khảo) · Double-click vùng để copy GeoJSON</p>
-      </div>
-    </div>
+      <h1>Bản đồ Lâm Đồng</h1>
+    </a>
+
+    <nav class="main-nav" aria-label="Điều hướng chính">
+      <a class="nav-tab active" href="/">Bản đồ</a>
+      <a class="nav-tab" href="/streets">Khu vực phát</a>
+      <a class="nav-tab" href="/admin">Quản trị</a>
+    </nav>
 
     <div class="topbar-right">
       <div id="statusBanner" class="status-banner" hidden></div>
-      <a class="btn small" href="/streets" title="Quản lý & gộp đường thành khu vực phát bưu tá theo 124 xã/phường">🛣 Khu vực phát</a>
-      <a class="btn small admin-nav-btn" href="/admin">🔐 Quản trị (Admin)</a>
     </div>
   </header>
 
@@ -41,130 +42,120 @@
 
       <div class="map-toolbar">
         <div class="toolbar-group">
-          <button type="button" id="fitBoundsBtn" class="tool-btn" disabled>Căn giữa tất cả</button>
-          <label class="checkbox-inline" title="Hiển thị lớp 124 xã, phường, đặc khu mới 2025">
+          <button type="button" id="fitBoundsBtn" class="tool-btn" disabled>Căn giữa</button>
+          <label class="checkbox-inline" title="Lớp 124 xã, phường, đặc khu mới 2025">
             <input type="checkbox" id="showWardsLayerToggle" checked />
-            <span>Xã/Phường mới</span>
+            <span>Xã/Phường</span>
           </label>
-          <label class="checkbox-inline" title="Hiển thị lớp 30 huyện, thị xã, thành phố cũ (viền đậm)">
+          <label class="checkbox-inline" title="Lớp 30 huyện, thị xã, thành phố cũ">
             <input type="checkbox" id="showOldDistrictsLayerToggle" />
-            <span>Huyện/TP cũ</span>
+            <span>Huyện cũ</span>
           </label>
-          <label class="checkbox-inline" title="Hiển thị vị trí xe tải các Bưu cục Vận hành">
+          <label class="checkbox-inline" title="Vị trí và vùng phục vụ các Bưu cục Vận hành">
             <input type="checkbox" id="showBcvhLayerToggle" checked />
-            <span>🚚 Bưu cục VH</span>
+            <span>BCVH</span>
           </label>
-          <label class="checkbox-inline" title="Hiển thị tên khu vực trên bản đồ">
+          <label class="checkbox-inline" title="Hiển thị nhãn tên khu vực trên bản đồ">
             <input type="checkbox" id="showLabelsToggle" />
-            <span>Hiện tên vùng</span>
+            <span>Tên vùng</span>
           </label>
-          <label class="opacity-control" title="Độ đậm màu tô của các khu vực">
-            <span>Màu tô</span>
+          <label class="opacity-control" title="Độ đậm màu tô">
+            <span>Độ đậm</span>
             <input type="range" id="opacityRange" min="0.05" max="0.75" step="0.05" value="0.32" />
           </label>
         </div>
 
         <div class="toolbar-group" id="quickStats">
-          <span class="stat-pill" id="statRegions">0 khu vực</span>
+          <span class="stat-pill" id="statRegions">0 vùng</span>
         </div>
       </div>
     </section>
 
-    <aside class="inspector-panel">
-      <!-- BCVH (Bưu cục Vận hành) Service Clusters -->
-      <div class="card" id="bcvhCard">
-        <div class="card-header">
-          <h2>🚚 Bưu cục vận hành (<span id="bcvhCount">0</span>)</h2>
-          <div class="header-actions">
-            <button type="button" id="clearBcvhFocusBtn" class="btn small" hidden title="Hiển thị lại toàn bộ các xã">Hiện tất cả</button>
-            <a id="exportAllBcvhExcelBtn" class="btn small export-bcvh-excel-btn" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">Xuất Excel</a>
-            <a class="btn small" href="/admin#bcvh" title="Thêm / sửa Bưu cục Vận hành">+ Quản lý</a>
-          </div>
-        </div>
-        <div id="bcvhListEmpty" class="empty-hint">
-          Chưa cấu hình Bưu cục Vận hành. Vào <a href="/admin#bcvh">Quản trị → BCVH</a> để gán xã phục vụ và đặt vị trí xe tải.
-        </div>
-        <div id="bcvhList" class="bcvh-list"></div>
+    <aside class="sidebar-rail">
+      <div class="rail-tabs" role="tablist">
+        <button type="button" id="mapTabBcvhBtn" class="rail-tab active" role="tab" aria-selected="true">
+          Bưu cục VH <span class="tab-count" id="bcvhCount">0</span>
+        </button>
+        <button type="button" id="mapTabRegionsBtn" class="rail-tab" role="tab" aria-selected="false">
+          Địa giới <span class="tab-count" id="regionCount">0</span>
+        </button>
       </div>
 
-      <!-- Regions List -->
-      <div class="card">
-        <div class="card-header">
-          <h2>Danh sách khu vực (<span id="regionCount">0</span>)</h2>
-          <div class="header-actions">
-            <label class="checkbox-inline" title="Chỉ giữ hình Polygon/MultiPolygon, bỏ điểm ghim">
-              <input type="checkbox" id="polygonsOnlyToggle" checked />
-              <span>Chỉ Polygon</span>
-            </label>
-            <button type="button" id="reloadDbBtn" class="btn small" title="Tải lại dữ liệu mới nhất từ SQL Server">
-              ↻ Tải lại
-            </button>
-          </div>
+      <!-- Tab 1: BCVH List -->
+      <div id="mapPanelBcvh" class="rail-panel">
+        <div class="rail-toolbar">
+          <button type="button" id="clearBcvhFocusBtn" class="btn small" hidden>Hiện tất cả</button>
+          <a id="exportAllBcvhExcelBtn" class="btn small export-bcvh-excel-btn" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">Xuất Excel tất cả</a>
+          <a class="btn small" href="/admin#bcvh" style="margin-left:auto;">Quản lý</a>
         </div>
-        <div class="region-filter-bar">
-          <input id="regionSearchInput" type="text" class="region-search-input" placeholder="Lọc nhanh tên xã, phường, huyện cũ..." />
+        <div class="rail-scroll">
+          <div id="bcvhListEmpty" class="rail-empty">
+            Chưa có Bưu cục Vận hành. Vào <a href="/admin#bcvh">Quản trị → BCVH</a> để cấu hình.
+          </div>
+          <div id="bcvhList" class="bcvh-list"></div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Administrative Regions List -->
+      <div id="mapPanelRegions" class="rail-panel" hidden>
+        <div class="rail-toolbar">
+          <input id="regionSearchInput" type="text" class="region-search-input" placeholder="Tìm xã, phường, huyện cũ..." />
           <select id="regionLayerFilter" class="region-layer-select">
-            <option value="all">Tất cả lớp</option>
-            <option value="ward_2025">Xã/Phường mới (2025)</option>
-            <option value="district_old">Huyện/TP cũ</option>
+            <option value="all">Tất cả</option>
+            <option value="ward_2025">Xã/Phường</option>
+            <option value="district_old">Huyện cũ</option>
           </select>
+          <button type="button" id="reloadDbBtn" class="mini-btn" title="Tải lại từ SQL Server">↻</button>
         </div>
-        <div id="regionListEmpty" class="empty-hint">
-          Chưa có khu vực nào. Vào trang <a href="/admin">Quản trị (Admin)</a> để nạp dữ liệu.
-        </div>
-        <div id="regionList" class="region-list"></div>
-      </div>
-
-      <!-- Selected Region Metadata -->
-      <div class="card" id="metaCard" hidden>
-        <div class="card-header">
-          <h2>Chi tiết khu vực đang chọn</h2>
-          <span id="sourceBadge" class="badge">—</span>
-        </div>
-        <div class="meta-grid">
-          <div class="meta-row">
-            <span class="meta-key">Tên đối tượng</span>
-            <span class="meta-val strong" id="metaName">—</span>
-          </div>
-          <div class="meta-row" id="metaDescRow" hidden>
-            <span class="meta-key">Mô tả</span>
-            <span class="meta-val" id="metaDesc">—</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Mã / ID</span>
-            <span class="meta-val" id="metaIds">—</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Diện tích / Điểm</span>
-            <span class="meta-val" id="metaMetrics">—</span>
-          </div>
-          <div class="meta-links" id="metaLinks"></div>
-          <details class="trace-box" id="traceBox" hidden>
-            <summary>Nhật ký truy xuất</summary>
-            <ul id="traceList"></ul>
-          </details>
+        <div class="rail-scroll">
+          <div id="regionListEmpty" class="rail-empty">Chưa có khu vực phù hợp.</div>
+          <div id="regionList" class="region-list"></div>
         </div>
       </div>
 
-      <!-- GeoJSON Output -->
-      <div class="card json-card">
-        <div class="card-header">
-          <div class="export-tabs" role="tablist">
-            <button type="button" class="tab-btn active" data-export-mode="merged">Gộp tất cả</button>
-            <button type="button" class="tab-btn" data-export-mode="selected">Vùng đang chọn</button>
-          </div>
+      <!-- Collapsible GeoJSON Output Drawer -->
+      <div class="geojson-drawer">
+        <div class="geojson-drawer-head">
+          <span class="geojson-drawer-title">GeoJSON</span>
           <div class="json-actions">
-            <label class="checkbox-inline" title="Hiển thị nhiều dòng dễ đọc (khi Copy vẫn luôn 1 dòng để dán Excel)">
-              <input type="checkbox" id="prettyToggle" />
-              <span>Format</span>
-            </label>
             <button type="button" id="copyBtn" class="btn small" disabled>Copy</button>
             <button type="button" id="downloadGeojsonBtn" class="btn small primary" disabled>.geojson</button>
-            <button type="button" id="downloadJsonBtn" class="btn small" disabled>.json</button>
+            <button type="button" id="toggleGeojsonDrawerBtn" class="btn small" aria-expanded="false">Mở ▴</button>
           </div>
         </div>
-        <div id="jsonNote" class="json-note" hidden></div>
-        <pre id="jsonPreview" class="json-preview"><code>// Dữ liệu GeoJSON sẽ hiển thị tại đây...</code></pre>
+
+        <div id="geojsonDrawerBody" class="geojson-drawer-body" hidden>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+            <div class="export-tabs" role="tablist">
+              <button type="button" class="tab-btn active" data-export-mode="merged">Gộp tất cả</button>
+              <button type="button" class="tab-btn" data-export-mode="selected">Đang chọn</button>
+            </div>
+            <div class="json-actions">
+              <label class="checkbox-inline" title="Chỉ giữ Polygon/MultiPolygon">
+                <input type="checkbox" id="polygonsOnlyToggle" checked />
+                <span>Polygon</span>
+              </label>
+              <label class="checkbox-inline" title="Format nhiều dòng xem trước (Copy vẫn 1 dòng)">
+                <input type="checkbox" id="prettyToggle" />
+                <span>Format</span>
+              </label>
+              <button type="button" id="downloadJsonBtn" class="btn small" disabled>.json</button>
+            </div>
+          </div>
+
+          <div id="metaCard" class="meta-grid" hidden style="padding:6px 8px;background:#fff;border:1px solid var(--border);border-radius:6px;">
+            <div class="meta-row"><span class="meta-key">Đang chọn</span><span class="meta-val strong" id="metaName">—</span></div>
+            <div class="meta-row" id="metaDescRow" hidden><span class="meta-key">Mô tả</span><span class="meta-val" id="metaDesc">—</span></div>
+            <div class="meta-row"><span class="meta-key">Thông số</span><span class="meta-val" id="metaMetrics">—</span></div>
+            <span id="sourceBadge" hidden></span>
+            <span id="metaIds" hidden></span>
+            <div id="metaLinks" hidden></div>
+            <details id="traceBox" hidden><summary></summary><ul id="traceList"></ul></details>
+          </div>
+
+          <div id="jsonNote" class="json-note" hidden></div>
+          <pre id="jsonPreview" class="json-preview"><code>// Chọn vùng hoặc double-click trên bản đồ để copy nhanh 1 dòng</code></pre>
+        </div>
       </div>
     </aside>
   </main>

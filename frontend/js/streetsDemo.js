@@ -18,6 +18,12 @@ const totalStreetsPill = $('totalStreetsPill');
 const wardFilterInput = $('wardFilterInput');
 const wardSelect = $('wardSelect');
 
+const streetsTabListBtn = $('streetsTabListBtn');
+const streetsTabSavedBtn = $('streetsTabSavedBtn');
+const streetsPanelList = $('streetsPanelList');
+const streetsPanelSaved = $('streetsPanelSaved');
+const selectionTray = $('selectionTray');
+
 const savedRoutesCount = $('savedRoutesCount');
 const savedRoutesEmpty = $('savedRoutesEmpty');
 const savedRoutesListEl = $('savedRoutesList');
@@ -287,9 +293,9 @@ function renderSavedRoutesList() {
         <div class="saved-route-sub">${streetSummary} · ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km²${modTag}</div>
       </div>
       <div class="saved-route-btns">
-        ${isAdmin ? '<button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON tuyến đường thư này">✏ Sửa</button>' : ''}
+        ${isAdmin ? '<button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON khu vực phát này">Sửa</button>' : ''}
         <button type="button" class="btn small copy-route-btn" title="Copy GeoJSON 1 dòng để dán Excel">Copy</button>
-        ${isAdmin ? '<button type="button" class="btn small danger-solid del-route-btn" title="Xóa tuyến đường thư này">🗑</button>' : ''}
+        ${isAdmin ? '<button type="button" class="btn small danger-ghost del-route-btn" title="Xóa khu vực phát này">Xóa</button>' : ''}
       </div>
     `;
     item.querySelector('.saved-route-name').textContent = r.name;
@@ -469,7 +475,7 @@ async function runMergeSelectedStreets() {
     setStatus(`Lỗi gộp khu vực phát: ${err.message}`, 'error');
   } finally {
     mergeRoutesBtn.disabled = selectedIds.size === 0;
-    mergeRoutesBtn.textContent = '🔀 Gộp khu vực phát';
+    mergeRoutesBtn.textContent = 'Gộp khu vực phát';
   }
 }
 
@@ -523,7 +529,7 @@ appendToRouteBtn.addEventListener('click', async () => {
     setStatus(`Lỗi thêm vào khu vực phát: ${err.message}`, 'error');
   } finally {
     appendToRouteBtn.disabled = selectedIds.size === 0;
-    appendToRouteBtn.textContent = '+ Thêm vào KV';
+    appendToRouteBtn.textContent = 'Thêm';
   }
 });
 
@@ -593,12 +599,13 @@ saveMailRouteBtn.addEventListener('click', async () => {
     syncSelectionUI();
     renderSavedRoutesList();
     renderSavedRoutesOnMap();
-    setStatus(`Đã lưu khu vực phát "${data.route.name}" vào SQL Server. Bấm "✏ Sửa" để chỉnh sửa đỉnh GeoJSON.`, 'success');
+    switchStreetsTab('saved');
+    setStatus(`Đã lưu khu vực phát "${data.route.name}".`, 'success');
   } catch (err) {
     setStatus(`Lỗi lưu khu vực phát: ${err.message}`, 'error');
   } finally {
     saveMailRouteBtn.disabled = false;
-    saveMailRouteBtn.textContent = '💾 Lưu';
+    saveMailRouteBtn.textContent = 'Lưu';
   }
 });
 
@@ -636,13 +643,13 @@ function ensureEditorMap() {
       editorUndoBtn.disabled = !canUndo;
       editorRedoBtn.disabled = !canRedo;
       editorToggleEditBtn.classList.toggle('primary', editEnabled && !drawing);
-      editorToggleEditBtn.textContent = editEnabled ? '✏ Đang sửa đỉnh' : '✏ Sửa đỉnh';
+      editorToggleEditBtn.textContent = editEnabled ? 'Đang sửa đỉnh' : 'Sửa đỉnh';
       editorToggleTopoBtn.classList.toggle('active-topo', topoEnabled);
-      editorToggleTopoBtn.textContent = dirtyNeighborCount > 0 ? `🔗 Biên chung (${dirtyNeighborCount})` : '🔗 Biên chung';
+      editorToggleTopoBtn.textContent = dirtyNeighborCount > 0 ? `Biên chung (${dirtyNeighborCount})` : 'Biên chung';
       editorToggleNeighborsBtn.classList.toggle('active-ref', showNeighbors);
-      editorToggleNeighborsBtn.textContent = neighborCount > 0 ? `Tuyến khác (${neighborCount})` : 'Tuyến khác';
+      editorToggleNeighborsBtn.textContent = neighborCount > 0 ? `KV phát khác (${neighborCount})` : 'KV phát khác';
       editorDrawPolyBtn.classList.toggle('primary', drawing);
-      editorDrawPolyBtn.textContent = drawing ? '✓ Kết thúc vẽ (Enter)' : '+ Vẽ vùng';
+      editorDrawPolyBtn.textContent = drawing ? 'Kết thúc vẽ (Enter)' : '+ Vẽ vùng';
       editorVertexBadge.textContent = `${vertexCount.toLocaleString('vi-VN')} đỉnh`;
       editorHint.innerHTML = drawing
         ? '<strong>Đang vẽ vùng mới:</strong> Bấm chuột trái để đặt từng đỉnh · Bấm vào <strong>chấm xanh đầu tiên</strong>, double-click hoặc <code>Enter</code> để khép · <code>Esc</code> để hủy'
@@ -854,10 +861,24 @@ window.addEventListener('keydown', (e) => {
 });
 
 // --- Street List & Selection UI ---
+function switchStreetsTab(tab) {
+  const isList = tab === 'list';
+  streetsTabListBtn?.classList.toggle('active', isList);
+  streetsTabListBtn?.setAttribute('aria-selected', String(isList));
+  streetsTabSavedBtn?.classList.toggle('active', !isList);
+  streetsTabSavedBtn?.setAttribute('aria-selected', String(!isList));
+  if (streetsPanelList) streetsPanelList.hidden = !isList;
+  if (streetsPanelSaved) streetsPanelSaved.hidden = isList;
+}
+
+streetsTabListBtn?.addEventListener('click', () => switchStreetsTab('list'));
+streetsTabSavedBtn?.addEventListener('click', () => switchStreetsTab('saved'));
+
 function syncSelectionUI({ shouldFit = false } = {}) {
   clearMergedResult();
   selectedCount.textContent = String(selectedIds.size);
-  selectedHint.hidden = selectedIds.size > 0;
+  if (selectionTray) selectionTray.hidden = selectedIds.size === 0;
+  if (selectedHint) selectedHint.hidden = selectedIds.size > 0;
   mergeRoutesBtn.disabled = selectedIds.size === 0;
 
   selectedChips.innerHTML = '';
@@ -1034,7 +1055,6 @@ async function loadWard(wardUnitId) {
 toggleLabelsBtn.addEventListener('click', () => {
   showStreetLabels = !showStreetLabels;
   toggleLabelsBtn.classList.toggle('active', showStreetLabels);
-  toggleLabelsBtn.textContent = showStreetLabels ? '🏷 Đang hiện tên đường' : '🏷 Hiện tên đường';
   renderStreetLabels();
 });
 

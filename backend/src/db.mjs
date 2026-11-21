@@ -1653,42 +1653,6 @@ export async function mergeWardStreetsByIds(streetIds = []) {
   };
 }
 
-export async function unionGeoJsonGeometries(geometries = []) {
-  const wkts = geometries
-    .map((g) => geojsonToMultiPolygonWkt(g))
-    .filter(Boolean);
-  if (wkts.length === 0) return null;
-
-  const p = await getReadyPool();
-  const res = await p
-    .request()
-    .input('wktsJson', sql.NVarChar(sql.MAX), JSON.stringify(wkts))
-    .query(`
-      DECLARE @u GEOMETRY;
-      SELECT @u = geometry::UnionAggregate(geometry::STGeomFromText(value, 4326).MakeValid().STBuffer(0.000008))
-      FROM OPENJSON(@wktsJson);
-      IF @u IS NOT NULL
-      BEGIN
-        SET @u = @u.STBuffer(-0.000008).Reduce(0.000005).MakeValid();
-      END
-      SELECT CASE WHEN @u IS NOT NULL AND @u.STIsEmpty() = 0 THEN @u.STAsText() ELSE NULL END AS wkt;
-    `);
-  const mergedWkt = res.recordset[0]?.wkt;
-  if (!mergedWkt) return null;
-  const geom = wktToGeoJsonGeometry(mergedWkt);
-  if (!geom) return null;
-
-  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geom }] };
-  const stats = computeGeoStats(fc, null);
-  const polygonParts = geom.type === 'MultiPolygon' ? geom.coordinates.length : 1;
-  return {
-    geometry: geom,
-    areaKm2: Math.round(stats.areaKm2 * 10000) / 10000,
-    points: stats.points,
-    polygonParts,
-  };
-}
-
 // --- Mail Routes (Tuyến đường thư) CRUD ---
 function hydrateMailRouteRow(row) {
   let streetIds = [];

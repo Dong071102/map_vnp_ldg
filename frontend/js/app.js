@@ -1,5 +1,4 @@
 import {
-  fetchHealth,
   fetchSavedRegions,
   fetchBcvhOffices,
 } from './api.js';
@@ -79,8 +78,14 @@ L.control
 
 // --- DOM Refs ---
 const $ = (id) => document.getElementById(id);
-const dbStatusPill = $('dbStatusPill');
 const statusBanner = $('statusBanner');
+
+const mapTabBcvhBtn = $('mapTabBcvhBtn');
+const mapTabRegionsBtn = $('mapTabRegionsBtn');
+const mapPanelBcvh = $('mapPanelBcvh');
+const mapPanelRegions = $('mapPanelRegions');
+const toggleGeojsonDrawerBtn = $('toggleGeojsonDrawerBtn');
+const geojsonDrawerBody = $('geojsonDrawerBody');
 
 const fitBoundsBtn = $('fitBoundsBtn');
 const showWardsLayerToggle = $('showWardsLayerToggle');
@@ -155,12 +160,6 @@ function slugify(str) {
   );
 }
 
-function nextColor() {
-  const c = PALETTE[colorCursor % PALETTE.length];
-  colorCursor++;
-  return c;
-}
-
 function setStatus(message, type = 'success') {
   if (!message) {
     statusBanner.hidden = true;
@@ -171,18 +170,25 @@ function setStatus(message, type = 'success') {
   statusBanner.hidden = false;
 }
 
-function updateDbPill(db) {
-  if (!db || !dbStatusPill) return;
-  if (db.connected) {
-    dbStatusPill.textContent = `SQL Server: ${db.database}`;
-    dbStatusPill.className = 'db-pill ok';
-    dbStatusPill.title = `Đã kết nối ${db.host}:${db.port}/${db.database}`;
-  } else {
-    dbStatusPill.textContent = 'SQL Server: Mất kết nối';
-    dbStatusPill.className = 'db-pill danger';
-    dbStatusPill.title = db.error || 'Chưa kết nối SQL Server';
-  }
+function switchMapSidebarTab(tab) {
+  const isBcvh = tab === 'bcvh';
+  mapTabBcvhBtn?.classList.toggle('active', isBcvh);
+  mapTabBcvhBtn?.setAttribute('aria-selected', String(isBcvh));
+  mapTabRegionsBtn?.classList.toggle('active', !isBcvh);
+  mapTabRegionsBtn?.setAttribute('aria-selected', String(!isBcvh));
+  if (mapPanelBcvh) mapPanelBcvh.hidden = !isBcvh;
+  if (mapPanelRegions) mapPanelRegions.hidden = isBcvh;
 }
+
+mapTabBcvhBtn?.addEventListener('click', () => switchMapSidebarTab('bcvh'));
+mapTabRegionsBtn?.addEventListener('click', () => switchMapSidebarTab('regions'));
+toggleGeojsonDrawerBtn?.addEventListener('click', () => {
+  if (!geojsonDrawerBody) return;
+  const open = geojsonDrawerBody.hidden;
+  geojsonDrawerBody.hidden = !open;
+  toggleGeojsonDrawerBtn.setAttribute('aria-expanded', String(open));
+  toggleGeojsonDrawerBtn.textContent = open ? 'Thu gọn ▾' : 'Mở ▴';
+});
 
 function getFilteredRegionGeojson(region) {
   const onlyPoly = polygonsOnlyToggle.checked;
@@ -201,20 +207,6 @@ function getFilteredRegionGeojson(region) {
       },
     }));
   return { type: 'FeatureCollection', features };
-}
-
-function serializeRegionForDb(region) {
-  return {
-    key: region.key,
-    layerGroup: region.layerGroup || 'custom',
-    color: region.color,
-    areaKm2: region.areaKm2,
-    points: region.points,
-    modified: region.modified,
-    meta: region.meta,
-    geojson: region.rawGeojson,
-    originalGeojson: region.originalGeojson,
-  };
 }
 
 function isRegionLayerEnabled(region) {
@@ -1089,7 +1081,7 @@ function createRegionStateFromDto(dto) {
     layerGroup: dto.layerGroup || 'ward_2025',
     oldDistrict: dto.oldDistrict || '',
     oldProvince: dto.oldProvince || '',
-    color: dto.color || nextColor(),
+    color: dto.color || PALETTE[colorCursor++ % PALETTE.length],
     visible: true,
     meta: dto.meta,
     rawGeojson: dto.geojson,
@@ -1110,7 +1102,6 @@ async function loadFromDatabase({ fitAfter = true } = {}) {
       fetchSavedRegions(),
       fetchBcvhOffices().catch(() => ({ offices: [] })),
     ]);
-    updateDbPill(res.db);
     regions.forEach(removeRegionLayers);
     regions = (res.regions || []).map(createRegionStateFromDto);
     assignDistinctOldDistrictColors(regions);
@@ -1128,7 +1119,6 @@ async function loadFromDatabase({ fitAfter = true } = {}) {
     if (fitAfter && regions.length > 0) fitAllVisibleBounds();
     return regions.length;
   } catch (err) {
-    updateDbPill(err.data?.db || { connected: false, error: err.message });
     setStatus(`Không tải được từ SQL Server: ${err.message}`, 'warn');
     return -1;
   }
@@ -1227,18 +1217,12 @@ downloadJsonBtn.addEventListener('click', () => downloadFile('json'));
 
 // --- Startup: load from SQL Server, optional ?region=<id> deep-link ---
 (async () => {
-  try {
-    const health = await fetchHealth();
-    updateDbPill(health.db);
-  } catch {
-    updateDbPill({ connected: false, error: 'Backend không phản hồi' });
-  }
-
   const focusDbId = Number(new URLSearchParams(window.location.search).get('region')) || null;
   await loadFromDatabase({ fitAfter: !focusDbId });
   if (focusDbId) {
     const target = regions.find((r) => r.dbId === focusDbId);
     if (target) {
+      switchMapSidebarTab('regions');
       selectRegion(target.id);
       zoomToRegion(target.id);
       setStatus(`Đang xem "${target.meta.name}" trên bản đồ.`, 'success');
