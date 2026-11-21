@@ -277,7 +277,7 @@ function renderSavedRoutesList() {
     const item = document.createElement('div');
     item.className = `saved-route-item${activeSavedRouteId === r.id ? ' active' : ''}`;
     const modTag = r.modified ? ' · Đã chỉnh tay' : '';
-    const streetSummary = r.streetNames?.length ? `${r.streetNames.length} đường` : 'Vùng tùy chỉnh';
+    const streetSummary = r.streetNames?.length ? `${r.streetNames.length} tuyến đường` : 'Vùng tùy chỉnh';
     item.innerHTML = `
       <div class="saved-route-main">
         <div class="saved-route-title">
@@ -401,19 +401,20 @@ function fitSelectedStreets() {
 
 function updateAddToExistingBox() {
   if (!addToExistingBox || !targetExistingRouteSelect) return;
-  const canAppend = isAdmin && savedRoutes.length > 0 && selectedIds.size > 0;
-  addToExistingBox.hidden = !canAppend;
-  if (!canAppend) return;
+  const hasRoutes = isAdmin && savedRoutes.length > 0;
+  addToExistingBox.hidden = !hasRoutes;
+  if (!hasRoutes) return;
 
   const prevVal = Number(targetExistingRouteSelect.value) || activeSavedRouteId || savedRoutes[0]?.id;
   targetExistingRouteSelect.innerHTML = '';
   for (const r of savedRoutes) {
     const opt = document.createElement('option');
     opt.value = String(r.id);
-    opt.textContent = `${r.name} (${r.streetNames?.length || 0} đường · ${r.areaKm2.toFixed(2)} km²)`;
+    opt.textContent = `${r.name} (${r.streetNames?.length || 0} tuyến đường · ${r.areaKm2.toFixed(2)} km²)`;
     if (r.id === prevVal) opt.selected = true;
     targetExistingRouteSelect.appendChild(opt);
   }
+  if (appendToRouteBtn) appendToRouteBtn.disabled = selectedIds.size === 0;
 }
 
 function getStreetOwnerRoutes(streetId) {
@@ -515,13 +516,13 @@ appendToRouteBtn.addEventListener('click', async () => {
     const lyr = savedRouteLayerById.get(result.route.id);
     if (lyr?.getBounds()?.isValid()) map.fitBounds(lyr.getBounds(), { padding: [48, 48], maxZoom: 16 });
     setStatus(
-      `Đã thêm ${result.addedNames.length} đường (${result.addedNames.join(', ')}) vào khu vực phát "${result.route.name}" (${result.route.areaKm2.toFixed(3)} km²).`,
+      `Đã thêm ${result.addedNames.length} tuyến đường (${result.addedNames.join(', ')}) vào khu vực phát "${result.route.name}" (${result.route.areaKm2.toFixed(3)} km²).`,
       'success',
     );
   } catch (err) {
     setStatus(`Lỗi thêm vào khu vực phát: ${err.message}`, 'error');
   } finally {
-    appendToRouteBtn.disabled = false;
+    appendToRouteBtn.disabled = selectedIds.size === 0;
     appendToRouteBtn.textContent = '+ Thêm vào KV';
   }
 });
@@ -890,7 +891,7 @@ function syncSelectionUI({ shouldFit = false } = {}) {
       .map((id) => bundle.streets.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(', ');
-    setStatus(`Đang xem riêng ${selectedIds.size} đường: ${names}. Bấm "🔀 Gộp khu vực phát" hoặc "+ Thêm vào KV".`, 'success');
+    setStatus(`Đang xem riêng ${selectedIds.size} tuyến đường: ${names}. Bấm "🔀 Gộp khu vực phát" hoặc "+ Thêm vào KV".`, 'success');
     if (shouldFit) fitSelectedStreets();
   }
 }
@@ -955,7 +956,7 @@ function renderWardSelect(preserveId = null) {
   for (const w of filtered) {
     const opt = document.createElement('option');
     opt.value = String(w.wardUnitId);
-    opt.textContent = `${w.wardName} (${w.streetCount} đường)${w.oldDistrict ? ` — ${w.oldDistrict}` : ''}`;
+    opt.textContent = `${w.wardName} (${w.streetCount} tuyến đường)${w.oldDistrict ? ` — ${w.oldDistrict}` : ''}`;
     if (w.wardUnitId === currentVal) opt.selected = true;
     wardSelect.appendChild(opt);
   }
@@ -1136,7 +1137,7 @@ async function init() {
   allWardSummaries = data.wards || [];
   totalWardsCount.textContent = String(allWardSummaries.length);
   const totalStreets = allWardSummaries.reduce((acc, w) => acc + w.streetCount, 0);
-  totalStreetsPill.textContent = `${totalStreets.toLocaleString('vi-VN')} đường`;
+  totalStreetsPill.textContent = `${totalStreets.toLocaleString('vi-VN')} tuyến đường`;
 
   const defaultWard =
     allWardSummaries.find((w) => w.wardName.toLowerCase().includes('xuân hương')) ||

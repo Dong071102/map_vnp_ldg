@@ -63,6 +63,10 @@
     .save-route-row input[type="color"] {
       width: 34px; height: 32px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 7px; cursor: pointer;
     }
+    .save-route-row[hidden],
+    .add-to-route-box[hidden] {
+      display: none !important;
+    }
     .add-to-route-box {
       margin-top: 8px; padding: 8px; border-radius: 8px; background: #fff7ed; border: 1px solid #fed7aa;
       display: flex; flex-direction: column; gap: 6px;
@@ -127,7 +131,7 @@
       <div class="brand-icon" aria-hidden="true">🛣</div>
       <div>
         <h1>Khu vực phát Bưu tá — Lâm Đồng 2025</h1>
-        <p>Gộp đường thành khu vực phát, thêm đường vào khu vực phát đã có và chỉnh sửa đỉnh GeoJSON trực quan</p>
+        <p>Gộp các tuyến đường thành khu vực phát, thêm tuyến đường vào khu vực phát đã có và chỉnh sửa đỉnh GeoJSON trực quan</p>
       </div>
     </div>
     <div class="topbar-right">
@@ -170,7 +174,7 @@
       <div class="card">
         <div class="card-header">
           <h2>📍 Chọn Xã / Phường (<span id="totalWardsCount">124</span>)</h2>
-          <span class="stat-pill" id="totalStreetsPill" style="font-size:11px;">0 đường</span>
+          <span class="stat-pill" id="totalStreetsPill" style="font-size:11px;">0 tuyến đường</span>
         </div>
         <div class="ward-picker-bar">
           <input id="wardFilterInput" type="text" class="region-search-input" style="max-width: 135px;" placeholder="Lọc xã..." />
@@ -184,7 +188,7 @@
           <h2>📮 Khu vực phát đã lưu (<span id="savedRoutesCount">0</span>)</h2>
         </div>
         <div id="savedRoutesEmpty" class="empty-hint">
-          Chưa có khu vực phát nào trong xã/phường này. Chọn các đường bên dưới → bấm <strong>Gộp khu vực phát</strong> → đặt tên &amp; bấm <strong>Lưu</strong>.
+          Chưa có khu vực phát nào trong xã/phường này. Chọn các tuyến đường bên dưới → bấm <strong>Gộp khu vực phát</strong> → đặt tên &amp; bấm <strong>Lưu mới</strong>.
         </div>
         <div id="savedRoutesList" class="saved-routes-list"></div>
       </div>
@@ -192,14 +196,14 @@
       <!-- Selected Streets & Merge/Save/Append Box -->
       <div class="card">
         <div class="card-header" style="flex-wrap: wrap; gap: 6px;">
-          <h2>🛣 Đường đang chọn (<span id="selectedCount">0</span>)</h2>
+          <h2>🛣 Tuyến đường đang chọn (<span id="selectedCount">0</span>)</h2>
           <div class="header-actions">
             <button type="button" id="clearSelectedBtn" class="btn small">Bỏ chọn</button>
           </div>
         </div>
         <div style="padding: 10px 12px;">
           <div id="selectedHint" class="empty-hint" style="padding: 4px 0;">
-            Bấm chọn 1 hoặc nhiều đường trên bản đồ / danh sách bên dưới để <strong>xem riêng từng đường</strong>, <strong>gộp thành khu vực phát mới</strong> hoặc <strong>thêm vào khu vực phát đã có</strong>.
+            Bấm chọn 1 hoặc nhiều tuyến đường trên bản đồ / danh sách bên dưới để <strong>xem riêng từng tuyến đường</strong>, <strong>gộp thành khu vực phát mới</strong> hoặc <strong>thêm vào khu vực phát đã có</strong>.
           </div>
           <div id="selectedChips" class="demo-chips"></div>
 
@@ -210,10 +214,10 @@
 
           <!-- Admin: Append 1+ selected roads directly into an existing delivery area -->
           <div id="addToExistingBox" class="add-to-route-box" hidden>
-            <div style="font-size: 11.5px; font-weight: 700; color: #9a3412;">➕ Thêm đường đang chọn vào Khu vực phát đã có</div>
+            <div style="font-size: 11.5px; font-weight: 700; color: #9a3412;">➕ Thêm tuyến đường đang chọn vào Khu vực phát đã có</div>
             <div class="add-to-route-row">
               <select id="targetExistingRouteSelect"></select>
-              <button type="button" id="appendToRouteBtn" class="btn small primary">+ Thêm vào KV</button>
+              <button type="button" id="appendToRouteBtn" class="btn small primary" disabled>+ Thêm vào KV</button>
             </div>
           </div>
 
@@ -221,7 +225,7 @@
             <div style="font-size: 12px; font-weight: 700; color: #c2410c;">📦 Khu vực phát đang gộp</div>
             <div class="demo-stats-grid">
               <div class="demo-stat-box"><span>Diện tích vùng gộp</span><strong id="statArea">—</strong></div>
-              <div class="demo-stat-box"><span>Tổng chiều dài đường</span><strong id="statLength">—</strong></div>
+              <div class="demo-stat-box"><span>Tổng chiều dài tuyến đường</span><strong id="statLength">—</strong></div>
               <div class="demo-stat-box"><span>Cấu trúc hình học</span><strong id="statParts">—</strong></div>
               <div class="demo-stat-box"><span>GeoJSON (1 dòng)</span><strong id="statChars">—</strong></div>
             </div>
@@ -232,7 +236,7 @@
               <button type="button" id="saveMailRouteBtn" class="btn small success-btn">💾 Lưu mới</button>
             </div>
             <div id="adminOnlySaveHint" class="empty-hint" style="padding:6px 0 0;font-size:11.5px;" hidden>
-              🔐 Chỉ tài khoản <a href="/admin">Admin</a> mới được tạo, thêm đường hoặc chỉnh sửa khu vực phát.
+              🔐 Chỉ tài khoản <a href="/admin">Admin</a> mới được tạo, thêm tuyến đường hoặc chỉnh sửa khu vực phát.
             </div>
 
             <div class="merged-actions">
@@ -246,10 +250,10 @@
       <!-- Street list in ward -->
       <div class="card">
         <div class="card-header">
-          <h2>Danh sách đường (<span id="streetCount">0</span>)</h2>
+          <h2>Danh sách tuyến đường (<span id="streetCount">0</span>)</h2>
         </div>
         <div class="region-filter-bar">
-          <input id="streetSearch" type="text" class="region-search-input" placeholder="Tìm tên đường trong xã/phường đang xem..." />
+          <input id="streetSearch" type="text" class="region-search-input" placeholder="Tìm tên tuyến đường trong xã/phường đang xem..." />
         </div>
         <div id="streetList" class="street-list"></div>
       </div>
