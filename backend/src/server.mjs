@@ -4,10 +4,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.mjs';
 import {
+  ALL_PERMISSIONS,
+  ROLE_PRESETS,
   verifyCredentials,
+  verifyPassword,
+  hasPermission,
   createSession,
   getSessionFromRequest,
   destroySession,
+  syncUserSessions,
+  revokeUserSessions,
   buildSessionCookieHeader,
 } from './auth.mjs';
 import {
@@ -46,6 +52,11 @@ import {
   updateMailRoute,
   addStreetsToMailRoute,
   deleteMailRoute,
+  getUserByUsernameForAuth,
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
   closeDb,
 } from './db.mjs';
 import { extractRegion, normalizeToFeatureCollection, hasUsableGeometry } from './wikiExtractor.mjs';
@@ -115,7 +126,17 @@ function sendJson(res, statusCode, payload, extraHeaders = {}) {
 function requireAdmin(req, res) {
   const session = getSessionFromRequest(req);
   if (!session) {
-    sendJson(res, 401, { error: 'Vui lòng đăng nhập tài khoản quản trị (/admin) để thực hiện thao tác này.' });
+    sendJson(res, 401, { error: 'Vui lòng đăng nhập để thực hiện thao tác này.' });
+    return null;
+  }
+  return session;
+}
+
+function requirePermission(req, res, permission) {
+  const session = requireAdmin(req, res);
+  if (!session) return null;
+  if (!hasPermission(session, permission)) {
+    sendJson(res, 403, { error: 'Tài khoản của bạn không có quyền thực hiện thao tác này.' });
     return null;
   }
   return session;
@@ -201,12 +222,18 @@ export function createAppServer() {
         return;
       }
 
-      // --- Admin Auth Endpoints ---
+      // --- Auth & RBAC Endpoints ---
       if (pathname === '/api/auth/me' && req.method === 'GET') {
         const session = getSessionFromRequest(req);
         sendJson(res, 200, {
           authenticated: Boolean(session),
           username: session?.username || null,
+          fullName: session?.fullName || null,
+          role: session?.role || null,
+          roleLabel: session?.role ? ROLE_PRESETS[session.role]?.label || session.role : null,
+          permissions: session?.permissions || [],
+          roles: ROLE_PRESETS,
+          allPermissions: ALL_PERMISSIONS,
         });
         return;
       }
@@ -216,15 +243,43 @@ export function createAppServer() {
           const body = await readJsonBody(req);
           const username = String(body.username || '').trim();
           const password = String(body.password || '');
-          if (!verifyCredentials(username, password)) {
+          let authedUser = null;
+
+          try {
+            const dbUser = await getUserByUsernameForAuth(username);
+            if (dbUser) {
+              if (!dbUser.isActive) {
+                sendJson(res, 403, { error: 'Tài khoản này đã bị khóa. Vui lòng liên hệ quản trị viên.' });
+                return;
+              }
+              if (verifyPassword(password, dbUser.passwordHash)) {
+                authedUser = dbUser;
+              }
+            }
+          } catch {
+            // fallback to env admin credentials if DB is temporarily unreachable
+          }
+
+          if (!authedUser && verifyCredentials(username, password)) {
+            authedUser = username;
+          }
+
+          if (!authedUser) {
             sendJson(res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu.' });
             return;
           }
-          const session = createSession(username);
+          const session = createSession(authedUser);
           sendJson(
             res,
             200,
-            { authenticated: true, username: session.username },
+            {
+              authenticated: true,
+              username: session.username,
+              fullName: session.fullName,
+              role: session.role,
+              roleLabel: ROLE_PRESETS[session.role]?.label || session.role,
+              permissions: session.permissions,
+            },
             { 'Set-Cookie': buildSessionCookieHeader(session.token, false) },
           );
         } catch (err) {
@@ -367,6 +422,14 @@ export function createAppServer() {
       }
 
       // --- Lam Dong 124-Ward Streets & Delivery Route Merge Endpoints ---
+      if (pathname.startsWith('/api/streets')) {
+        const sess = getSessionFromRequest(req);
+        if (sess && !hasPermission(sess, 'view_routes') && !hasPermission(sess, 'edit_routes')) {
+          sendJson(res, 403, { error: 'Tài khoản của bạn chưa được cấp quyền Xem khu vực phát.' });
+          return;
+        }
+      }
+
       if (pathname === '/api/streets/wards' && req.method === 'GET') {
         try {
           const wards = await listWardStreetSummaries();
@@ -446,8 +509,13 @@ export function createAppServer() {
         return;
       }
 
-      // --- Mail Routes (Tuyến đường thư) CRUD + Shared-Border GeoJSON Editing ---
+      // --- Mail Routes (Khu vực phát) CRUD + Shared-Border GeoJSON Editing ---
       if (pathname === '/api/mail-routes' && req.method === 'GET') {
+        const sess = getSessionFromRequest(req);
+        if (sess && !hasPermission(sess, 'view_routes') && !hasPermission(sess, 'edit_routes')) {
+          sendJson(res, 403, { error: 'Tài khoản của bạn chưa được cấp quyền Xem khu vực phát.' });
+          return;
+        }
         try {
           const wardUnitId = reqUrl.searchParams.get('wardUnitId');
           const routes = await listMailRoutes(wardUnitId);
@@ -459,12 +527,12 @@ export function createAppServer() {
       }
 
       if (pathname === '/api/mail-routes' && req.method === 'POST') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_routes')) return;
         try {
           const body = await readJsonBody(req);
           const fc = normalizeToFeatureCollection(body.geojson, { name: body.name || '' });
           if (!fc || !hasUsableGeometry(fc)) {
-            sendJson(res, 400, { error: 'GeoJSON tuyến đường thư không hợp lệ hoặc trống.' });
+            sendJson(res, 400, { error: 'GeoJSON khu vực phát không hợp lệ hoặc trống.' });
             return;
           }
           const route = await createMailRoute({ ...body, geojson: fc });
@@ -477,7 +545,7 @@ export function createAppServer() {
 
       const mailRouteAddStreetsMatch = pathname.match(/^\/api\/mail-routes\/(\d+)\/add-streets$/);
       if (mailRouteAddStreetsMatch && req.method === 'POST') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_routes')) return;
         try {
           const body = await readJsonBody(req);
           const result = await addStreetsToMailRoute(
@@ -494,7 +562,7 @@ export function createAppServer() {
 
       const mailRouteIdMatch = pathname.match(/^\/api\/mail-routes\/(\d+)$/);
       if (mailRouteIdMatch && req.method === 'PUT') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_routes')) return;
         try {
           const routeId = Number(mailRouteIdMatch[1]);
           const body = await readJsonBody(req);
@@ -502,7 +570,7 @@ export function createAppServer() {
           if (body.geojson !== undefined) {
             const fc = normalizeToFeatureCollection(body.geojson, { name: body.name || '' });
             if (!fc || !hasUsableGeometry(fc)) {
-              sendJson(res, 400, { error: 'GeoJSON tuyến đường thư không hợp lệ (cần Polygon / MultiPolygon).' });
+              sendJson(res, 400, { error: 'GeoJSON khu vực phát không hợp lệ (cần Polygon / MultiPolygon).' });
               return;
             }
             payload.geojson = fc;
@@ -531,7 +599,7 @@ export function createAppServer() {
       }
 
       if (mailRouteIdMatch && req.method === 'DELETE') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_routes')) return;
         try {
           const deleted = await deleteMailRoute(mailRouteIdMatch[1]);
           sendJson(res, deleted ? 200 : 404, { deleted });
@@ -616,7 +684,7 @@ export function createAppServer() {
       }
 
       if (pathname === '/api/regions' && req.method === 'POST') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_admin_boundaries')) return;
         try {
           const body = await readJsonBody(req);
           const saved = await upsertRegion(body);
@@ -628,7 +696,7 @@ export function createAppServer() {
       }
 
       if (pathname === '/api/regions/batch' && req.method === 'POST') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_admin_boundaries')) return;
         try {
           const body = await readJsonBody(req);
           const saved = await upsertRegionsBatch(body.regions);
@@ -641,7 +709,7 @@ export function createAppServer() {
 
       const singleRegionMatch = pathname.match(/^\/api\/regions\/(\d+)$/);
       if (singleRegionMatch && req.method === 'DELETE') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_admin_boundaries')) return;
         try {
           const deleted = await deleteRegion(singleRegionMatch[1]);
           sendJson(res, deleted ? 200 : 404, { deleted });
@@ -652,7 +720,7 @@ export function createAppServer() {
       }
 
       if (pathname === '/api/regions' && req.method === 'DELETE') {
-        if (!requireAdmin(req, res)) return;
+        if (!requirePermission(req, res, 'edit_admin_boundaries')) return;
         try {
           const deletedCount = await deleteAllRegions();
           sendJson(res, 200, { deletedCount });
@@ -662,9 +730,67 @@ export function createAppServer() {
         return;
       }
 
-      // --- Admin: Lam Dong 124 commune-level units (16/06/2025) — Auth Required ---
+      // --- Admin Endpoints (Role / Permission Gated) ---
       if (pathname.startsWith('/api/admin/')) {
         if (!requireAdmin(req, res)) return;
+        if (pathname.startsWith('/api/admin/users')) {
+          if (!requirePermission(req, res, 'manage_users')) return;
+        } else if (pathname.startsWith('/api/admin/bcvh')) {
+          if (req.method !== 'GET' && !requirePermission(req, res, 'edit_bcvh')) return;
+        } else if (req.method !== 'GET') {
+          if (!requirePermission(req, res, 'edit_admin_boundaries')) return;
+        }
+      }
+
+      // --- Admin: Users & RBAC Management ---
+      if (pathname === '/api/admin/users' && req.method === 'GET') {
+        try {
+          const users = await listUsers();
+          sendJson(res, 200, { users, roles: ROLE_PRESETS, allPermissions: ALL_PERMISSIONS });
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      if (pathname === '/api/admin/users' && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const user = await createUser(body);
+          sendJson(res, 201, { user });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
+      const adminUserIdMatch = pathname.match(/^\/api\/admin\/users\/(\d+)$/);
+      if (adminUserIdMatch && req.method === 'PUT') {
+        try {
+          const body = await readJsonBody(req);
+          const user = await updateUser(adminUserIdMatch[1], body);
+          syncUserSessions(user.username, user);
+          sendJson(res, 200, { user });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
+      if (adminUserIdMatch && req.method === 'DELETE') {
+        try {
+          const actor = getSessionFromRequest(req);
+          const deletedUser = await deleteUser(adminUserIdMatch[1], actor?.username || '');
+          if (!deletedUser) {
+            sendJson(res, 404, { error: 'Không tìm thấy tài khoản.' });
+            return;
+          }
+          revokeUserSessions(deletedUser.username);
+          sendJson(res, 200, { deleted: true });
+        } catch (err) {
+          sendJson(res, 400, { error: err.message });
+        }
+        return;
       }
       if (pathname === '/api/admin/lamdong' && req.method === 'GET') {
         try {

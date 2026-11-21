@@ -116,8 +116,11 @@ const savedRouteLayerById = new Map();
 let latestMerged = null;
 let showStreetLabels = true;
 let loadSeq = 0;
-let isAdmin = false;
+let isLoggedIn = false;
+let canViewRoutes = true;
+let canEditRoutes = false;
 let adminUsername = null;
+let adminRoleLabel = null;
 
 // Editor state
 let editorMap = null;
@@ -245,7 +248,7 @@ function renderSavedRoutesOnMap() {
       },
       onEachFeature: (_f, lyr) => {
         const streetsLine = r.streetNames?.length ? `<br/>Đường: ${r.streetNames.slice(0, 6).join(', ')}${r.streetNames.length > 6 ? '...' : ''}` : '';
-        const editHint = isAdmin ? '<br/><em>Bấm để chọn · Double-click để sửa đỉnh</em>' : '<br/><em>Bấm để xem</em>';
+        const editHint = canEditRoutes ? '<br/><em>Bấm để chọn · Double-click để sửa đỉnh</em>' : '<br/><em>Bấm để xem</em>';
         lyr.bindTooltip(
           `<strong>📮 ${r.name}</strong><br/>Diện tích: ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km² · ${r.points} đỉnh${streetsLine}${editHint}`,
           { sticky: true, direction: 'top', opacity: 0.96 },
@@ -253,7 +256,7 @@ function renderSavedRoutesOnMap() {
         lyr.on('click', () => focusSavedRoute(r.id));
         lyr.on('dblclick', (e) => {
           L.DomEvent.stop(e);
-          if (isAdmin) openRouteEditorModal(r);
+          if (canEditRoutes) openRouteEditorModal(r);
         });
       },
     }).addTo(savedRoutesGroup);
@@ -293,9 +296,9 @@ function renderSavedRoutesList() {
         <div class="saved-route-sub">${streetSummary} · ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km²${modTag}</div>
       </div>
       <div class="saved-route-btns">
-        ${isAdmin ? '<button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON khu vực phát này">Sửa</button>' : ''}
+        ${canEditRoutes ? '<button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON khu vực phát này">Sửa</button>' : ''}
         <button type="button" class="btn small copy-route-btn" title="Copy GeoJSON 1 dòng để dán Excel">Copy</button>
-        ${isAdmin ? '<button type="button" class="btn small danger-ghost del-route-btn" title="Xóa khu vực phát này">Xóa</button>' : ''}
+        ${canEditRoutes ? '<button type="button" class="btn small danger-ghost del-route-btn" title="Xóa khu vực phát này">Xóa</button>' : ''}
       </div>
     `;
     item.querySelector('.saved-route-name').textContent = r.name;
@@ -414,7 +417,7 @@ function fitSelectedStreets() {
 
 function updateAddToExistingBox() {
   if (!addToExistingBox || !targetExistingRouteSelect) return;
-  const hasRoutes = isAdmin && savedRoutes.length > 0;
+  const hasRoutes = canEditRoutes && savedRoutes.length > 0;
   addToExistingBox.hidden = !hasRoutes;
   if (!hasRoutes) return;
 
@@ -490,7 +493,7 @@ async function runMergeSelectedStreets() {
 }
 
 appendToRouteBtn.addEventListener('click', async () => {
-  if (!isAdmin || selectedIds.size === 0) return;
+  if (!canEditRoutes || selectedIds.size === 0) return;
   const routeId = Number(targetExistingRouteSelect.value);
   if (!routeId) return;
 
@@ -683,8 +686,8 @@ function ensureEditorMap() {
 }
 
 function openRouteEditorModal(route) {
-  if (!isAdmin) {
-    setStatus('Chỉ tài khoản Admin mới được chỉnh sửa tuyến đường thư.', 'error');
+  if (!canEditRoutes) {
+    setStatus('Tài khoản của bạn không có quyền chỉnh sửa khu vực phát.', 'error');
     return;
   }
   editingRoute = route;
@@ -1152,13 +1155,22 @@ downloadMergedBtn.addEventListener('click', () => {
 
 function applyAdminPermissionsUI() {
   if (adminBadge) {
-    adminBadge.textContent = adminUsername ? `👤 ${adminUsername}` : '';
-    adminBadge.hidden = !isAdmin;
+    adminBadge.textContent = adminUsername
+      ? adminRoleLabel
+        ? `${adminUsername} · ${adminRoleLabel}`
+        : adminUsername
+      : '';
+    adminBadge.hidden = !isLoggedIn;
   }
-  if (adminLoginLink) adminLoginLink.hidden = isAdmin;
-  if (saveRouteRow) saveRouteRow.hidden = !isAdmin;
-  if (adminOnlySaveHint) adminOnlySaveHint.hidden = isAdmin;
-  if (savedRoutesEmpty && !isAdmin) {
+  if (adminLoginLink) adminLoginLink.hidden = isLoggedIn;
+  if (saveRouteRow) saveRouteRow.hidden = !canEditRoutes;
+  if (adminOnlySaveHint) {
+    adminOnlySaveHint.hidden = canEditRoutes;
+    adminOnlySaveHint.innerHTML = isLoggedIn
+      ? `Tài khoản <strong>${(adminUsername || '').replace(/</g, '&lt;')}</strong> (${(adminRoleLabel || '').replace(/</g, '&lt;')}) chỉ có quyền xem khu vực phát.`
+      : 'Đăng nhập tài khoản có quyền sửa khu vực phát tại <a href="/admin">Quản trị</a> để lưu hoặc chỉnh sửa.';
+  }
+  if (savedRoutesEmpty && !canEditRoutes) {
     savedRoutesEmpty.textContent = 'Chưa có khu vực phát nào trong xã/phường này.';
   }
   updateAddToExistingBox();
@@ -1171,10 +1183,23 @@ async function init() {
   ]);
   if (authRes?.ok) {
     const auth = await authRes.json().catch(() => ({}));
-    isAdmin = Boolean(auth.authenticated);
+    isLoggedIn = Boolean(auth.authenticated);
     adminUsername = auth.username || null;
+    adminRoleLabel = auth.roleLabel || null;
+    const perms = Array.isArray(auth.permissions) ? auth.permissions : [];
+    const isSuper = auth.role === 'super_admin';
+    canEditRoutes = isLoggedIn && (isSuper || perms.includes('edit_routes'));
+    canViewRoutes = !isLoggedIn || isSuper || perms.includes('view_routes') || canEditRoutes;
   }
   applyAdminPermissionsUI();
+
+  if (res.status === 403 || !canViewRoutes) {
+    wardStatsPill.textContent = 'Không có quyền xem khu vực phát';
+    streetListEl.innerHTML =
+      '<div class="rail-empty">Tài khoản hiện tại không được cấp quyền xem khu vực phát &amp; tuyến đường. Vui lòng liên hệ quản trị viên để cấp quyền.</div>';
+    setStatus('Tài khoản hiện tại không có quyền xem khu vực phát.', 'warn');
+    return;
+  }
 
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Không tải được danh sách xã/phường');

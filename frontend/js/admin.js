@@ -16,7 +16,7 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMap }) {
+export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMap, canEdit = () => true }) {
   const $ = (id) => document.getElementById(id);
 
   const searchInput = $('adminSearchInput');
@@ -151,16 +151,17 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
         statusHtml = `<span class="clean-status err" title="${escapeHtml(u.syncError || 'Lỗi')}">Lỗi ⚠</span>`;
       }
 
-      const isEditingOd = editingOdId === u.id;
+      const editable = canEdit();
+      const isEditingOd = editable && editingOdId === u.id;
       const oldDistrictCellHtml = isEditingOd
         ? `<div class="inline-edit-box">
              <input type="text" class="inline-edit-input od-edit-input" value="${escapeHtml(u.oldDistrict || '')}" placeholder="Tên huyện cũ..." />
              <button type="button" class="mini-btn highlight od-save-btn" title="Lưu (Enter)">✓</button>
              <button type="button" class="mini-btn od-cancel-btn" title="Hủy (Esc)">✕</button>
            </div>`
-        : `<div class="editable-text-cell od-trigger" title="Bấm để sửa huyện cũ">
+        : `<div class="${editable ? 'editable-text-cell od-trigger' : 'old-district-readonly'}"${editable ? ' title="Bấm để sửa huyện cũ"' : ''}>
              <span class="old-district-name">${escapeHtml(u.oldDistrict || '—')}</span>
-             <button type="button" class="inline-pencil-btn" aria-label="Sửa huyện cũ">✎</button>
+             ${editable ? '<button type="button" class="inline-pencil-btn" aria-label="Sửa huyện cũ">✎</button>' : ''}
            </div>
            ${u.oldProvince ? `<div class="sub-metric">${escapeHtml(u.oldProvince)}</div>` : ''}`;
 
@@ -186,12 +187,14 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
         <td class="col-status">${statusHtml}</td>
         <td class="col-actions right-col">
           <div class="row-action-btns right-actions">
-            <button type="button" class="btn small primary view-map-btn" title="Mở bản đồ &amp; chỉnh sửa ranh giới">
-              🗺 Sửa bản đồ
+            <button type="button" class="btn small primary view-map-btn" title="${editable ? 'Mở bản đồ &amp; chỉnh sửa ranh giới' : 'Xem bản đồ ranh giới'}">
+              ${editable ? 'Sửa bản đồ' : 'Xem bản đồ'}
             </button>
-            <button type="button" class="btn small ghost-btn toggle-link-row-btn${expandedLinkId === u.id ? ' active-link-btn' : ''}" title="Sửa link nguồn / cập nhật lại GeoJSON">
-              🔗
-            </button>
+            ${
+              editable
+                ? `<button type="button" class="btn small ghost-btn toggle-link-row-btn${expandedLinkId === u.id ? ' active-link-btn' : ''}" title="Sửa link nguồn / cập nhật lại GeoJSON">🔗</button>`
+                : ''
+            }
           </div>
         </td>
       `;
@@ -253,7 +256,7 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
         onOpenRegionOnMap?.(u);
       });
 
-      tr.querySelector('.toggle-link-row-btn').addEventListener('click', () => {
+      tr.querySelector('.toggle-link-row-btn')?.addEventListener('click', () => {
         expandedLinkId = expandedLinkId === u.id ? null : u.id;
         renderTable();
       });
@@ -261,7 +264,7 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
       fragment.appendChild(tr);
 
       // Optional clean expandable sub-row for editing source link or refetching from link
-      if (expandedLinkId === u.id) {
+      if (editable && expandedLinkId === u.id) {
         const subTr = document.createElement('tr');
         subTr.className = 'link-expand-row';
         subTr.innerHTML = `

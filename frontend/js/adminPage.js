@@ -15,6 +15,10 @@ import {
   updateBcvhOffice,
   deleteBcvhOffice,
   locateWardByCoords,
+  fetchAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  deleteAdminUser,
 } from './api.js';
 import { computeGeoStats, serializeGeometryOneLine } from './geometry.js';
 import { initAdminTab } from './admin.js';
@@ -92,13 +96,39 @@ let currentPreviewGeojson = null;
 let savedDbGeojson = null;
 let savedNeighborWards = [];
 
-// Sub-tabs & 30 Old Districts + BCVH Management refs
+// Sub-tabs & 30 Old Districts + BCVH + Users Management refs
 const adminTabWardsBtn = $('adminTabWardsBtn');
 const adminTabDistrictsBtn = $('adminTabDistrictsBtn');
 const adminTabBcvhBtn = $('adminTabBcvhBtn');
+const adminTabUsersBtn = $('adminTabUsersBtn');
 const wardsAdminPanel = $('wardsAdminPanel');
 const oldDistrictsAdminPanel = $('oldDistrictsAdminPanel');
 const bcvhAdminPanel = $('bcvhAdminPanel');
+const usersAdminPanel = $('usersAdminPanel');
+const adminToggleAdvancedBtn = $('adminToggleAdvancedBtn');
+const adminAdvancedPanel = $('adminAdvancedPanel');
+
+const usersStatTotal = $('usersStatTotal');
+const usersSearchInput = $('usersSearchInput');
+const usersRoleFilter = $('usersRoleFilter');
+const openNewUserBtn = $('openNewUserBtn');
+const usersTableBody = $('usersTableBody');
+const userModal = $('userModal');
+const userModalTitle = $('userModalTitle');
+const userModalCloseBtn = $('userModalCloseBtn');
+const userForm = $('userForm');
+const userUsernameInput = $('userUsernameInput');
+const userFullNameInput = $('userFullNameInput');
+const userPasswordLabel = $('userPasswordLabel');
+const userPasswordInput = $('userPasswordInput');
+const userPasswordHint = $('userPasswordHint');
+const userRoleSelect = $('userRoleSelect');
+const userActiveCheckbox = $('userActiveCheckbox');
+const userPermsChecklist = $('userPermsChecklist');
+const userFormError = $('userFormError');
+const userCancelBtn = $('userCancelBtn');
+const userSaveBtn = $('userSaveBtn');
+
 const oldDistrictSearchInput = $('oldDistrictSearchInput');
 const oldDistrictProvinceFilter = $('oldDistrictProvinceFilter');
 const oldDistrictStatTotal = $('oldDistrictStatTotal');
@@ -140,6 +170,33 @@ let bcvhList = [];
 let bcvhLoaded = false;
 let editingBcvhId = null;
 let modalSelectedWardIds = new Set();
+
+// RBAC state
+let currentAuth = null;
+let usersList = [];
+let usersLoaded = false;
+let rbacRoles = {};
+let rbacAllPermissions = [];
+let editingUserId = null;
+
+function can(perm) {
+  if (!currentAuth) return false;
+  if (currentAuth.role === 'super_admin') return true;
+  return Array.isArray(currentAuth.permissions) && currentAuth.permissions.includes(perm);
+}
+
+function applyBoundaryModalPermissions() {
+  const canEdit = can('edit_admin_boundaries');
+  modalSaveGeojsonBtn.hidden = !canEdit;
+  modalRevertBtn.hidden = !canEdit;
+  modalToggleEditBtn.hidden = !canEdit;
+  modalToggleTopoBtn.hidden = !canEdit;
+  modalDrawPolyBtn.hidden = !canEdit;
+  modalUndoBtn.hidden = !canEdit;
+  modalRedoBtn.hidden = !canEdit;
+  if (mapEditHint) mapEditHint.hidden = !canEdit;
+  if (polygonEditor) polygonEditor.setEditEnabled(canEdit);
+}
 
 function setModalEditorStatus(message, type = 'success') {
   if (!message) {
@@ -409,7 +466,7 @@ async function openUnitMapPreview(unit) {
   const map = ensurePreviewMap();
   ensureNeighborProvincesLoaded();
   polygonEditor.clear();
-  polygonEditor.setEditEnabled(true);
+  applyBoundaryModalPermissions();
   polygonEditor.setShowNeighbors(showNeighborWards);
   renderSecondaryRefLayers([], { labelPrefix: 'Huyện cũ', isWardRef: false });
 
@@ -475,7 +532,7 @@ async function openOldDistrictMapPreview(district) {
   ensurePreviewMap();
   ensureNeighborProvincesLoaded();
   polygonEditor.clear();
-  polygonEditor.setEditEnabled(true);
+  applyBoundaryModalPermissions();
   polygonEditor.setShowNeighbors(showNeighborWards);
   renderSecondaryRefLayers([], { labelPrefix: 'Xã 2025', isWardRef: true });
 
@@ -573,6 +630,10 @@ modalToggleProvincesBtn.addEventListener('click', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && userModal && !userModal.hidden) {
+    closeUserModal();
+    return;
+  }
   if (e.key === 'Escape' && bcvhModal && !bcvhModal.hidden) {
     bcvhModal.hidden = true;
     return;
@@ -810,7 +871,7 @@ function renderOldDistrictsTable() {
         <span class="clean-status ${d.modified ? 'pending' : 'ok'}">${d.modified ? 'Đã chỉnh tay' : 'Dữ liệu gốc'}</span>
       </td>
       <td class="col-actions right-col">
-        <button type="button" class="btn small primary edit-district-map-btn">🗺 Sửa bản đồ</button>
+        <button type="button" class="btn small primary edit-district-map-btn">${can('edit_admin_boundaries') ? 'Sửa bản đồ' : 'Xem bản đồ'}</button>
       </td>
     `;
     tr.querySelector('.unit-name-line strong').textContent = d.name;
@@ -839,9 +900,11 @@ async function loadOldDistricts(force = false) {
 }
 
 function switchAdminSubtab(tab) {
+  if (tab === 'users' && !can('manage_users')) tab = 'wards';
   const isWards = tab === 'wards';
   const isDistricts = tab === 'districts';
   const isBcvh = tab === 'bcvh';
+  const isUsers = tab === 'users';
 
   adminTabWardsBtn?.classList.toggle('active', isWards);
   adminTabWardsBtn?.setAttribute('aria-selected', String(isWards));
@@ -849,18 +912,23 @@ function switchAdminSubtab(tab) {
   adminTabDistrictsBtn?.setAttribute('aria-selected', String(isDistricts));
   adminTabBcvhBtn?.classList.toggle('active', isBcvh);
   adminTabBcvhBtn?.setAttribute('aria-selected', String(isBcvh));
+  adminTabUsersBtn?.classList.toggle('active', isUsers);
+  adminTabUsersBtn?.setAttribute('aria-selected', String(isUsers));
 
   if (wardsAdminPanel) wardsAdminPanel.hidden = !isWards;
   if (oldDistrictsAdminPanel) oldDistrictsAdminPanel.hidden = !isDistricts;
   if (bcvhAdminPanel) bcvhAdminPanel.hidden = !isBcvh;
+  if (usersAdminPanel) usersAdminPanel.hidden = !isUsers;
 
   if (isDistricts) loadOldDistricts(true);
   if (isBcvh) loadBcvhOffices(true);
+  if (isUsers) loadAdminUsers(true);
 }
 
 adminTabWardsBtn?.addEventListener('click', () => switchAdminSubtab('wards'));
 adminTabDistrictsBtn?.addEventListener('click', () => switchAdminSubtab('districts'));
 adminTabBcvhBtn?.addEventListener('click', () => switchAdminSubtab('bcvh'));
+adminTabUsersBtn?.addEventListener('click', () => switchAdminSubtab('users'));
 oldDistrictSearchInput?.addEventListener('input', renderOldDistrictsTable);
 oldDistrictProvinceFilter?.addEventListener('change', renderOldDistrictsTable);
 
@@ -961,9 +1029,9 @@ function renderBcvhTable() {
       </td>
       <td class="col-actions right-col">
         <div class="row-action-btns right-actions">
-          <a class="btn small export-bcvh-excel-btn${missingFields.length > 0 ? ' is-incomplete' : ''}" href="/api/bcvh/${o.id}/export-excel" aria-disabled="${missingFields.length > 0}" title="${excelTitle}">📥 Excel</a>
-          <button type="button" class="btn small primary edit-bcvh-btn">✏ Sửa</button>
-          <button type="button" class="btn small danger-solid del-bcvh-btn" title="Xóa BCVH này">🗑</button>
+          <a class="btn small export-bcvh-excel-btn${missingFields.length > 0 ? ' is-incomplete' : ''}" href="/api/bcvh/${o.id}/export-excel" aria-disabled="${missingFields.length > 0}" title="${excelTitle}">Excel</a>
+          ${can('edit_bcvh') ? '<button type="button" class="btn small primary edit-bcvh-btn">Sửa</button>' : ''}
+          ${can('edit_bcvh') ? '<button type="button" class="btn small danger-solid del-bcvh-btn" title="Xóa BCVH này">Xóa</button>' : ''}
         </div>
       </td>
     `;
@@ -987,12 +1055,12 @@ function renderBcvhTable() {
           `Chưa thể xuất Excel cho "${o.name}": vui lòng điền đủ ${missingFields.join(', ')}.`,
           'error',
         );
-        openBcvhModal(o);
+        if (can('edit_bcvh')) openBcvhModal(o);
       }
     });
 
-    tr.querySelector('.edit-bcvh-btn').addEventListener('click', () => openBcvhModal(o));
-    tr.querySelector('.del-bcvh-btn').addEventListener('click', async () => {
+    tr.querySelector('.edit-bcvh-btn')?.addEventListener('click', () => openBcvhModal(o));
+    tr.querySelector('.del-bcvh-btn')?.addEventListener('click', async () => {
       const ok = await confirmNoti({
         title: `Xóa "${o.name}"`,
         message: 'Xác nhận xóa Bưu cục Vận hành này? Thao tác không xóa dữ liệu các xã.',
@@ -1273,6 +1341,293 @@ bcvhForm?.addEventListener('submit', async (e) => {
   }
 });
 
+// --- Users & RBAC Management ---
+const WRITE_PERM_KEYS = new Set(['edit_bcvh', 'edit_routes', 'edit_admin_boundaries']);
+
+function populateRoleDropdowns() {
+  const entries = Object.entries(rbacRoles || {});
+  if (usersRoleFilter) {
+    const prev = usersRoleFilter.value || 'all';
+    usersRoleFilter.innerHTML =
+      '<option value="all">Tất cả vai trò</option>' +
+      entries.map(([key, info]) => `<option value="${key}">${info.label}</option>`).join('');
+    if (prev !== 'all' && rbacRoles[prev]) usersRoleFilter.value = prev;
+  }
+  if (userRoleSelect) {
+    userRoleSelect.innerHTML = entries
+      .map(([key, info]) => `<option value="${key}">${info.label}</option>`)
+      .join('');
+  }
+}
+
+function getSelectedModalPerms() {
+  const checked = [];
+  for (const cb of userPermsChecklist?.querySelectorAll('input[type="checkbox"]') || []) {
+    if (cb.checked) checked.push(cb.value);
+  }
+  return checked;
+}
+
+function renderUserPermsChecklist(selectedPerms = [], isSuper = false) {
+  if (!userPermsChecklist) return;
+  const selSet = new Set(isSuper ? rbacAllPermissions.map((p) => p.key) : selectedPerms);
+  userPermsChecklist.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const p of rbacAllPermissions) {
+    const checked = selSet.has(p.key);
+    const label = document.createElement('label');
+    label.className = `perm-check-item${checked ? ' checked' : ''}`;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = p.key;
+    cb.checked = checked;
+    cb.disabled = isSuper || p.key === 'view_map';
+    cb.addEventListener('change', () => {
+      label.classList.toggle('checked', cb.checked);
+      // Auto-check implied view permissions
+      if (cb.checked && p.key === 'edit_bcvh') {
+        const v = userPermsChecklist.querySelector('input[value="view_bcvh"]');
+        if (v && !v.checked) {
+          v.checked = true;
+          v.closest('.perm-check-item')?.classList.add('checked');
+        }
+      }
+      if (cb.checked && p.key === 'edit_routes') {
+        const v = userPermsChecklist.querySelector('input[value="view_routes"]');
+        if (v && !v.checked) {
+          v.checked = true;
+          v.closest('.perm-check-item')?.classList.add('checked');
+        }
+      }
+      // Sync role select: match an existing preset or switch to custom
+      const now = new Set(getSelectedModalPerms());
+      let matched = 'custom';
+      for (const [rKey, info] of Object.entries(rbacRoles)) {
+        if (rKey === 'custom') continue;
+        const rSet = new Set(info.permissions || []);
+        if (rSet.size === now.size && [...rSet].every((k) => now.has(k))) {
+          matched = rKey;
+          break;
+        }
+      }
+      if (userRoleSelect) userRoleSelect.value = matched;
+    });
+    const span = document.createElement('span');
+    span.textContent = p.label;
+    label.append(cb, span);
+    frag.appendChild(label);
+  }
+  userPermsChecklist.appendChild(frag);
+}
+
+function getPermLabel(key) {
+  return rbacAllPermissions.find((p) => p.key === key)?.label || key;
+}
+
+function renderUsersTable() {
+  if (!usersTableBody) return;
+  const q = (usersSearchInput?.value || '').trim().toLowerCase();
+  const roleFilter = usersRoleFilter?.value || 'all';
+  if (usersStatTotal) usersStatTotal.textContent = String(usersList.length);
+
+  const filtered = usersList.filter((u) => {
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+    if (q && !`${u.username} ${u.fullName} ${u.roleLabel}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    usersTableBody.innerHTML =
+      '<tr><td colspan="6" class="admin-empty-cell">Không tìm thấy tài khoản nào phù hợp.</td></tr>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  filtered.forEach((u, idx) => {
+    const tr = document.createElement('tr');
+    const isSelf = currentAuth && String(u.username).toLowerCase() === String(currentAuth.username).toLowerCase();
+    const perms = Array.isArray(u.permissions) ? u.permissions : [];
+    const permChipsHtml =
+      u.role === 'super_admin'
+        ? '<span class="perm-chip is-admin">Toàn bộ quyền hệ thống</span>'
+        : perms
+            .map((k) => {
+              const cls = k === 'manage_users' ? ' is-admin' : WRITE_PERM_KEYS.has(k) ? ' is-write' : '';
+              return `<span class="perm-chip${cls}">${getPermLabel(k).replace(/</g, '&lt;')}</span>`;
+            })
+            .join('');
+
+    tr.innerHTML = `
+      <td class="col-stt">${idx + 1}</td>
+      <td class="col-name">
+        <div class="unit-name-line">
+          <strong class="user-uname"></strong>
+          ${isSelf ? '<span class="self-tag">Bạn</span>' : ''}
+        </div>
+        <div class="sub-metric user-fullname"></div>
+      </td>
+      <td class="col-old-district">
+        <span class="role-badge role-${u.role}">${(u.roleLabel || u.role).replace(/</g, '&lt;')}</span>
+      </td>
+      <td><div class="perm-chips-wrap">${permChipsHtml}</div></td>
+      <td class="col-status">
+        <span class="clean-status ${u.isActive ? 'ok' : 'err'}">${u.isActive ? 'Hoạt động' : 'Đã khóa'}</span>
+      </td>
+      <td class="col-actions right-col">
+        <div class="row-action-btns right-actions">
+          <button type="button" class="btn small primary edit-user-btn">Sửa</button>
+          ${!isSelf ? '<button type="button" class="btn small danger-solid del-user-btn">Xóa</button>' : ''}
+        </div>
+      </td>
+    `;
+
+    tr.querySelector('.user-uname').textContent = u.username;
+    tr.querySelector('.user-fullname').textContent = u.fullName || '—';
+
+    tr.querySelector('.edit-user-btn').addEventListener('click', () => openUserModal(u));
+    tr.querySelector('.del-user-btn')?.addEventListener('click', async () => {
+      const ok = await confirmNoti({
+        title: `Xóa tài khoản "${u.username}"`,
+        message: 'Tài khoản này sẽ bị xóa vĩnh viễn và phiên đăng nhập (nếu có) sẽ bị thu hồi ngay.',
+        tone: 'danger',
+        confirmText: 'Đồng ý xóa',
+        cancelText: 'Không',
+      });
+      if (!ok) return;
+      try {
+        await deleteAdminUser(u.id);
+        usersList = usersList.filter((x) => x.id !== u.id);
+        renderUsersTable();
+        setStatus(`Đã xóa tài khoản "${u.username}".`, 'success');
+      } catch (err) {
+        setStatus(`Lỗi xóa tài khoản: ${err.message}`, 'error');
+      }
+    });
+
+    frag.appendChild(tr);
+  });
+
+  usersTableBody.innerHTML = '';
+  usersTableBody.appendChild(frag);
+}
+
+async function loadAdminUsers(force = false) {
+  if (!can('manage_users')) return;
+  if (usersLoaded && !force) return;
+  try {
+    const res = await fetchAdminUsers();
+    if (res.db) updateDbPill(res.db);
+    usersList = res.users || [];
+    if (res.roles) rbacRoles = res.roles;
+    if (res.allPermissions) rbacAllPermissions = res.allPermissions;
+    populateRoleDropdowns();
+    usersLoaded = true;
+    renderUsersTable();
+  } catch (err) {
+    if (usersTableBody) {
+      usersTableBody.innerHTML = `<tr><td colspan="6" class="admin-empty-cell">Lỗi tải danh sách tài khoản: ${err.message}</td></tr>`;
+    }
+  }
+}
+
+function openUserModal(existing = null) {
+  editingUserId = existing?.id || null;
+  populateRoleDropdowns();
+  userModalTitle.textContent = editingUserId ? `Sửa tài khoản: ${existing.username}` : 'Tạo tài khoản mới';
+  userUsernameInput.value = existing?.username || '';
+  userUsernameInput.disabled = Boolean(editingUserId);
+  userFullNameInput.value = existing?.fullName || '';
+  userPasswordInput.value = '';
+  userPasswordInput.required = !editingUserId;
+  userPasswordLabel.textContent = editingUserId ? 'Đặt lại mật khẩu (tùy chọn)' : 'Mật khẩu *';
+  if (userPasswordHint) userPasswordHint.hidden = !editingUserId;
+  const role = existing?.role || 'viewer';
+  if (userRoleSelect) userRoleSelect.value = rbacRoles[role] ? role : 'custom';
+  if (userActiveCheckbox) userActiveCheckbox.checked = existing ? Boolean(existing.isActive) : true;
+  renderUserPermsChecklist(
+    existing?.permissions || rbacRoles[role]?.permissions || ['view_map'],
+    role === 'super_admin',
+  );
+  userFormError.hidden = true;
+  userModal.hidden = false;
+  (editingUserId ? userFullNameInput : userUsernameInput).focus();
+}
+
+function closeUserModal() {
+  if (userModal) userModal.hidden = true;
+}
+
+userRoleSelect?.addEventListener('change', () => {
+  const role = userRoleSelect.value;
+  const preset = rbacRoles[role];
+  if (role === 'super_admin') {
+    renderUserPermsChecklist(
+      rbacAllPermissions.map((p) => p.key),
+      true,
+    );
+  } else if (role !== 'custom' && preset) {
+    renderUserPermsChecklist(preset.permissions, false);
+  } else {
+    renderUserPermsChecklist(getSelectedModalPerms(), false);
+  }
+});
+
+openNewUserBtn?.addEventListener('click', () => openUserModal(null));
+userModalCloseBtn?.addEventListener('click', closeUserModal);
+userCancelBtn?.addEventListener('click', closeUserModal);
+userModal?.addEventListener('click', (e) => {
+  if (e.target === userModal) closeUserModal();
+});
+usersSearchInput?.addEventListener('input', renderUsersTable);
+usersRoleFilter?.addEventListener('change', renderUsersTable);
+
+userForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  userFormError.hidden = true;
+  userSaveBtn.disabled = true;
+  userSaveBtn.textContent = 'Đang lưu...';
+  try {
+    const role = userRoleSelect.value || 'viewer';
+    const permissions = role === 'super_admin' ? rbacAllPermissions.map((p) => p.key) : getSelectedModalPerms();
+    const payload = {
+      username: userUsernameInput.value.trim(),
+      fullName: userFullNameInput.value.trim(),
+      password: userPasswordInput.value,
+      role,
+      permissions,
+      isActive: Boolean(userActiveCheckbox.checked),
+    };
+    const res = editingUserId
+      ? await updateAdminUser(editingUserId, payload)
+      : await createAdminUser(payload);
+
+    if (editingUserId) {
+      const idx = usersList.findIndex((x) => x.id === editingUserId);
+      if (idx >= 0) usersList[idx] = res.user;
+    } else {
+      usersList.push(res.user);
+    }
+    renderUsersTable();
+    closeUserModal();
+    setStatus(
+      editingUserId
+        ? `Đã cập nhật tài khoản "${res.user.username}" (${res.user.roleLabel}).`
+        : `Đã tạo tài khoản "${res.user.username}" (${res.user.roleLabel}).`,
+      'success',
+    );
+  } catch (err) {
+    if (err.status === 401) {
+      closeUserModal();
+      showLoginScreen();
+    }
+    userFormError.textContent = err.message;
+    userFormError.hidden = false;
+  } finally {
+    userSaveBtn.disabled = false;
+    userSaveBtn.textContent = 'Lưu tài khoản';
+  }
+});
+
 function setStatus(message, type = 'success') {
   if (statusBanner) statusBanner.hidden = true;
   if (!message) return;
@@ -1297,22 +1652,57 @@ const adminTableController = initAdminTab({
   onOpenAllSavedOnMap: () => {
     window.location.href = '/';
   },
+  canEdit: () => can('edit_admin_boundaries'),
 });
 
-function showAuthenticated(username) {
+function applyAdminRoleUI() {
+  const canEditBoundaries = can('edit_admin_boundaries');
+  const canEditBcvh = can('edit_bcvh');
+  const canManageUsers = can('manage_users');
+
+  if (adminTabUsersBtn) adminTabUsersBtn.hidden = !canManageUsers;
+  if (openAddRegionModalBtn) openAddRegionModalBtn.hidden = !canEditBoundaries;
+  if (adminToggleAdvancedBtn) adminToggleAdvancedBtn.hidden = !canEditBoundaries;
+  if (!canEditBoundaries && adminAdvancedPanel) adminAdvancedPanel.hidden = true;
+  if (openNewBcvhBtn) openNewBcvhBtn.hidden = !canEditBcvh;
+
+  const roleText = currentAuth?.roleLabel || rbacRoles[currentAuth?.role]?.label || currentAuth?.role || '';
+  adminUserBadge.textContent = roleText ? `${currentAuth.username} · ${roleText}` : currentAuth.username;
+}
+
+function showAuthenticated(authInfo) {
+  currentAuth =
+    typeof authInfo === 'string'
+      ? { username: authInfo, role: 'super_admin', roleLabel: 'Quản trị toàn quyền', permissions: [] }
+      : authInfo;
+  if (currentAuth?.roles) rbacRoles = currentAuth.roles;
+  if (currentAuth?.allPermissions) rbacAllPermissions = currentAuth.allPermissions;
+
   loginScreen.hidden = true;
   adminView.hidden = false;
-  adminUserBadge.textContent = `👤 ${username}`;
+  applyAdminRoleUI();
   adminUserBadge.hidden = false;
   logoutBtn.hidden = false;
+
   adminTableController.onActivate();
   loadBcvhOffices(true);
-  if (window.location.hash === '#bcvh') {
+  if (can('manage_users')) loadAdminUsers(true);
+
+  if (window.location.hash === '#users' && can('manage_users')) {
+    switchAdminSubtab('users');
+  } else if (window.location.hash === '#bcvh') {
     switchAdminSubtab('bcvh');
+  } else if (can('edit_bcvh') && !can('edit_admin_boundaries')) {
+    switchAdminSubtab('bcvh');
+  } else {
+    switchAdminSubtab('wards');
   }
 }
 
 function showLoginScreen() {
+  currentAuth = null;
+  usersList = [];
+  usersLoaded = false;
   adminView.hidden = true;
   loginScreen.hidden = false;
   adminUserBadge.hidden = true;
@@ -1355,8 +1745,9 @@ loginForm.addEventListener('submit', async (e) => {
   try {
     const res = await loginAdmin(loginUsername.value.trim(), loginPassword.value);
     loginPassword.value = '';
-    setStatus(`Đăng nhập thành công (${res.username}).`, 'success');
-    showAuthenticated(res.username);
+    const me = await fetchAuthMe().catch(() => res);
+    setStatus(`Đăng nhập thành công (${me.username || res.username}).`, 'success');
+    showAuthenticated(me.authenticated ? me : res);
   } catch (err) {
     loginError.textContent = err.message || 'Đăng nhập thất bại.';
     loginError.hidden = false;
@@ -1466,7 +1857,7 @@ batchLoadBtn.addEventListener('click', async () => {
   try {
     const me = await fetchAuthMe();
     if (me.authenticated) {
-      showAuthenticated(me.username);
+      showAuthenticated(me);
     } else {
       showLoginScreen();
     }

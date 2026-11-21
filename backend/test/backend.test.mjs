@@ -4,7 +4,16 @@ import { parseInput, normalizeToFeatureCollection } from '../src/wikiExtractor.m
 import { extractMultiPolygonGeometry, geojsonToMultiPolygonWkt } from '../src/db.mjs';
 import { loadLamDongUnitsFromLocalFile, normalizeWikiMapUrl } from '../src/lamdongParser.mjs';
 import { loadOpenDataBundle } from '../src/openDataImporter.mjs';
-import { verifyCredentials, createSession, getSessionFromRequest, destroySession } from '../src/auth.mjs';
+import {
+  verifyCredentials,
+  hashPassword,
+  verifyPassword,
+  hasPermission,
+  normalizePermissions,
+  createSession,
+  getSessionFromRequest,
+  destroySession,
+} from '../src/auth.mjs';
 import {
   parseBcvhCode,
   formatAdminPath,
@@ -123,8 +132,24 @@ test('auth verifies default lamdong/Lamdong@2026 credentials and session lifecyc
   const s = createSession('lamdong');
   const fakeReq = { headers: { cookie: `admin_session=${s.token}` } };
   assert.equal(getSessionFromRequest(fakeReq)?.username, 'lamdong');
+  assert.equal(hasPermission(s, 'manage_users'), true);
   destroySession(s.token);
   assert.equal(getSessionFromRequest(fakeReq), null);
+
+  // Salted scrypt password hashing & granular RBAC permissions
+  const hash = hashPassword('Secret@123');
+  assert.ok(hash.startsWith('scrypt$'));
+  assert.equal(verifyPassword('Secret@123', hash), true);
+  assert.equal(verifyPassword('wrong', hash), false);
+
+  const bcvhPerms = normalizePermissions(['edit_bcvh'], 'custom');
+  assert.ok(bcvhPerms.includes('view_bcvh'), 'edit_bcvh implies view_bcvh');
+  assert.ok(bcvhPerms.includes('view_map'), 'always includes view_map');
+  const bcvhSess = createSession({ username: 'nv_bcvh', role: 'custom', permissions: bcvhPerms });
+  assert.equal(hasPermission(bcvhSess, 'edit_bcvh'), true);
+  assert.equal(hasPermission(bcvhSess, 'edit_routes'), false);
+  assert.equal(hasPermission(bcvhSess, 'manage_users'), false);
+  destroySession(bcvhSess.token);
 });
 
 test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () => {

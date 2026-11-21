@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import { config } from './config.mjs';
 import { computeGeoStats } from '../../frontend/js/geometry.js';
+import { ALL_PERMISSIONS, ROLE_PRESETS, hashPassword, normalizePermissions } from './auth.mjs';
 
 let pool = null;
 let dbState = {
@@ -356,7 +357,42 @@ export async function initDb() {
         );
         CREATE INDEX IX_mail_routes_ward ON dbo.mail_routes(ward_unit_id);
       END
+
+      IF OBJECT_ID(N'dbo.app_users', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.app_users (
+          id            INT IDENTITY(1,1) PRIMARY KEY,
+          username      NVARCHAR(64) NOT NULL UNIQUE,
+          full_name     NVARCHAR(255) NOT NULL DEFAULT N'',
+          password_hash NVARCHAR(255) NOT NULL,
+          role          NVARCHAR(64) NOT NULL DEFAULT N'viewer',
+          permissions   NVARCHAR(MAX) NOT NULL DEFAULT N'[]',
+          is_active     BIT NOT NULL DEFAULT 1,
+          created_at    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+          updated_at    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+        );
+      END
     `);
+
+    // Ensure default super_admin account exists in dbo.app_users
+    const adminUser = String(config.admin.username || 'lamdong').trim();
+    const existingAdmin = await pool
+      .request()
+      .input('username', sql.NVarChar(64), adminUser)
+      .query('SELECT id FROM dbo.app_users WHERE username = @username');
+    if (existingAdmin.recordset.length === 0) {
+      await pool
+        .request()
+        .input('username', sql.NVarChar(64), adminUser)
+        .input('fullName', sql.NVarChar(255), 'Quản trị hệ thống')
+        .input('passwordHash', sql.NVarChar(255), hashPassword(config.admin.password))
+        .input('role', sql.NVarChar(64), 'super_admin')
+        .input('permissions', sql.NVarChar(sql.MAX), JSON.stringify(ALL_PERMISSIONS.map((p) => p.key)))
+        .query(`
+          INSERT INTO dbo.app_users (username, full_name, password_hash, role, permissions, is_active)
+          VALUES (@username, @fullName, @passwordHash, @role, @permissions, 1)
+        `);
+    }
 
     dbState = {
       connected: true,
@@ -2121,6 +2157,207 @@ export async function deleteMailRoute(id) {
   const p = await getReadyPool();
   const res = await p.request().input('id', sql.Int, numericId).query('DELETE FROM dbo.mail_routes WHERE id = @id');
   return (res.rowsAffected?.[0] || 0) > 0;
+}
+
+// --- App Users & RBAC (Tài khoản & Phân quyền) ---
+function hydrateUserRow(row, { includeHash = false } = {}) {
+  let perms = [];
+  try {
+    const parsed = JSON.parse(row.permissions || '[]');
+    if (Array.isArray(parsed)) perms = parsed;
+  } catch {
+    perms = [];
+  }
+  const role = ROLE_PRESETS[row.role] ? row.role : 'custom';
+  const out = {
+    id: row.id,
+    username: row.username,
+    fullName: row.full_name || '',
+    role,
+    roleLabel: ROLE_PRESETS[role]?.label || 'Tùy chỉnh',
+    permissions: normalizePermissions(perms, role),
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+  if (includeHash) out.passwordHash = row.password_hash;
+  return out;
+}
+
+export async function getUserByUsernameForAuth(username) {
+  const clean = String(username || '').trim();
+  if (!clean) return null;
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('username', sql.NVarChar(64), clean)
+    .query(`
+      SELECT id, username, full_name, password_hash, role, permissions, is_active, created_at, updated_at
+      FROM dbo.app_users
+      WHERE username = @username
+    `);
+  return res.recordset[0] ? hydrateUserRow(res.recordset[0], { includeHash: true }) : null;
+}
+
+export async function listUsers() {
+  const p = await getReadyPool();
+  const res = await p.request().query(`
+    SELECT id, username, full_name, role, permissions, is_active, created_at, updated_at
+    FROM dbo.app_users
+    ORDER BY id ASC
+  `);
+  return res.recordset.map((r) => hydrateUserRow(r));
+}
+
+export async function getUserById(id) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) return null;
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('id', sql.Int, numericId)
+    .query(`
+      SELECT id, username, full_name, role, permissions, is_active, created_at, updated_at
+      FROM dbo.app_users
+      WHERE id = @id
+    `);
+  return res.recordset[0] ? hydrateUserRow(res.recordset[0]) : null;
+}
+
+export async function createUser(payload) {
+  const username = String(payload?.username || '').trim().toLowerCase();
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
+    throw new Error('Tên đăng nhập phải dài 3–40 ký tự, chỉ gồm chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.');
+  }
+  const password = String(payload?.password || '');
+  if (password.length < 6) {
+    throw new Error('Mật khẩu phải dài tối thiểu 6 ký tự.');
+  }
+  const fullName = String(payload?.fullName || '').trim().slice(0, 255);
+  const role = ROLE_PRESETS[payload?.role] ? payload.role : 'custom';
+  const permissions = normalizePermissions(payload?.permissions, role);
+  const isActive = payload?.isActive !== false;
+
+  const p = await getReadyPool();
+  const dup = await p
+    .request()
+    .input('username', sql.NVarChar(64), username)
+    .query('SELECT id FROM dbo.app_users WHERE username = @username');
+  if (dup.recordset.length > 0) {
+    throw new Error(`Tài khoản "${username}" đã tồn tại.`);
+  }
+
+  const res = await p
+    .request()
+    .input('username', sql.NVarChar(64), username)
+    .input('fullName', sql.NVarChar(255), fullName)
+    .input('passwordHash', sql.NVarChar(255), hashPassword(password))
+    .input('role', sql.NVarChar(64), role)
+    .input('permissions', sql.NVarChar(sql.MAX), JSON.stringify(permissions))
+    .input('isActive', sql.Bit, isActive ? 1 : 0)
+    .query(`
+      INSERT INTO dbo.app_users (username, full_name, password_hash, role, permissions, is_active)
+      OUTPUT INSERTED.id
+      VALUES (@username, @fullName, @passwordHash, @role, @permissions, @isActive)
+    `);
+  return getUserById(res.recordset[0].id);
+}
+
+async function countOtherActiveSuperAdmins(p, excludeId) {
+  const res = await p
+    .request()
+    .input('excludeId', sql.Int, excludeId)
+    .query(`
+      SELECT COUNT(*) AS cnt
+      FROM dbo.app_users
+      WHERE id <> @excludeId AND role = N'super_admin' AND is_active = 1
+    `);
+  return Number(res.recordset[0]?.cnt) || 0;
+}
+
+export async function updateUser(id, payload) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new Error('ID tài khoản không hợp lệ.');
+  }
+  const existing = await getUserById(numericId);
+  if (!existing) throw new Error('Không tìm thấy tài khoản.');
+
+  const fullName =
+    payload?.fullName !== undefined ? String(payload.fullName || '').trim().slice(0, 255) : existing.fullName;
+  const role = payload?.role !== undefined && ROLE_PRESETS[payload.role] ? payload.role : existing.role;
+  const permissions =
+    payload?.permissions !== undefined || payload?.role !== undefined
+      ? normalizePermissions(payload?.permissions ?? existing.permissions, role)
+      : existing.permissions;
+  const isActive = payload?.isActive !== undefined ? Boolean(payload.isActive) : existing.isActive;
+  const newPassword = String(payload?.password || '');
+  if (newPassword && newPassword.length < 6) {
+    throw new Error('Mật khẩu mới phải dài tối thiểu 6 ký tự.');
+  }
+
+  const p = await getReadyPool();
+  if (existing.role === 'super_admin' && (role !== 'super_admin' || !isActive)) {
+    const others = await countOtherActiveSuperAdmins(p, numericId);
+    if (others === 0) {
+      throw new Error('Không thể hạ quyền hoặc khóa tài khoản Quản trị toàn quyền duy nhất đang hoạt động.');
+    }
+  }
+
+  const req = p
+    .request()
+    .input('id', sql.Int, numericId)
+    .input('fullName', sql.NVarChar(255), fullName)
+    .input('role', sql.NVarChar(64), role)
+    .input('permissions', sql.NVarChar(sql.MAX), JSON.stringify(permissions))
+    .input('isActive', sql.Bit, isActive ? 1 : 0);
+
+  if (newPassword) {
+    req.input('passwordHash', sql.NVarChar(255), hashPassword(newPassword));
+    await req.query(`
+      UPDATE dbo.app_users
+      SET full_name = @fullName,
+          password_hash = @passwordHash,
+          role = @role,
+          permissions = @permissions,
+          is_active = @isActive,
+          updated_at = SYSUTCDATETIME()
+      WHERE id = @id
+    `);
+  } else {
+    await req.query(`
+      UPDATE dbo.app_users
+      SET full_name = @fullName,
+          role = @role,
+          permissions = @permissions,
+          is_active = @isActive,
+          updated_at = SYSUTCDATETIME()
+      WHERE id = @id
+    `);
+  }
+
+  return getUserById(numericId);
+}
+
+export async function deleteUser(id, actorUsername = '') {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new Error('ID tài khoản không hợp lệ.');
+  }
+  const existing = await getUserById(numericId);
+  if (!existing) return null;
+  if (actorUsername && existing.username.toLowerCase() === String(actorUsername).toLowerCase()) {
+    throw new Error('Không thể tự xóa tài khoản đang đăng nhập.');
+  }
+  const p = await getReadyPool();
+  if (existing.role === 'super_admin') {
+    const others = await countOtherActiveSuperAdmins(p, numericId);
+    if (others === 0) {
+      throw new Error('Không thể xóa tài khoản Quản trị toàn quyền duy nhất.');
+    }
+  }
+  await p.request().input('id', sql.Int, numericId).query('DELETE FROM dbo.app_users WHERE id = @id');
+  return existing;
 }
 
 export async function closeDb() {

@@ -84,7 +84,10 @@
           Huyện cũ <span class="tab-count" id="oldDistrictStatTotal">30</span>
         </button>
         <button type="button" id="adminTabBcvhBtn" class="segmented-tab" role="tab" aria-selected="false">
-          🚚 BCVH <span class="tab-count" id="bcvhStatTotal">0</span>
+          BCVH <span class="tab-count" id="bcvhStatTotal">0</span>
+        </button>
+        <button type="button" id="adminTabUsersBtn" class="segmented-tab" role="tab" aria-selected="false" hidden>
+          Phân quyền <span class="tab-count" id="usersStatTotal">0</span>
         </button>
       </div>
 
@@ -241,7 +244,94 @@
         </table>
       </div>
     </div>
+
+    <!-- Panel 4: Users & RBAC Permissions -->
+    <div id="usersAdminPanel" class="admin-panel-box" hidden>
+      <div class="admin-toolbar-row">
+        <div class="search-input-box">
+          <span class="search-ico" aria-hidden="true">🔍</span>
+          <input id="usersSearchInput" type="text" class="admin-search-clean" placeholder="Tìm tên đăng nhập, họ tên..." />
+        </div>
+        <select id="usersRoleFilter" class="filter-select" title="Lọc theo vai trò">
+          <option value="all">Tất cả vai trò</option>
+        </select>
+        <button type="button" id="openNewUserBtn" class="btn small primary">+ Tạo tài khoản</button>
+      </div>
+
+      <div class="admin-table-wrap clean-table-wrap">
+        <table class="admin-table clean-table">
+          <thead>
+            <tr>
+              <th class="col-stt">#</th>
+              <th class="col-name">Tài khoản</th>
+              <th class="col-old-district">Vai trò</th>
+              <th>Quyền hạn chi tiết</th>
+              <th class="col-status">Trạng thái</th>
+              <th class="col-actions right-col">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr><td colspan="6" class="admin-empty-cell">Đang tải danh sách tài khoản...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
+
+  <!-- Create / Edit User & Permissions Modal -->
+  <div id="userModal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-dialog-user" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+      <div class="modal-header">
+        <div>
+          <h3 id="userModalTitle">Tạo tài khoản mới</h3>
+          <div class="modal-subtitle">Chọn vai trò mẫu hoặc tùy chỉnh từng quyền thao tác trên bản đồ, BCVH và khu vực phát</div>
+        </div>
+        <button type="button" id="userModalCloseBtn" class="mini-btn" title="Đóng (Esc)">✕</button>
+      </div>
+
+      <form id="userForm" class="bcvh-form-body">
+        <div class="bcvh-grid-2">
+          <div class="form-field">
+            <label for="userUsernameInput">Tên đăng nhập *</label>
+            <input id="userUsernameInput" type="text" autocomplete="off" placeholder="VD: bcvh_baoloc, phat_dalat..." required />
+          </div>
+          <div class="form-field">
+            <label for="userFullNameInput">Họ tên / Bộ phận</label>
+            <input id="userFullNameInput" type="text" placeholder="VD: Nguyễn Văn A - BCVH Bảo Lộc" />
+          </div>
+        </div>
+
+        <div class="bcvh-grid-2">
+          <div class="form-field">
+            <label for="userPasswordInput" id="userPasswordLabel">Mật khẩu *</label>
+            <input id="userPasswordInput" type="password" autocomplete="new-password" placeholder="Tối thiểu 4 ký tự..." />
+            <span id="userPasswordHint" class="field-hint">Để trống nếu giữ nguyên mật khẩu hiện tại.</span>
+          </div>
+          <div class="form-field">
+            <label for="userRoleSelect">Vai trò (Role)</label>
+            <select id="userRoleSelect" class="filter-select bcvh-select"></select>
+          </div>
+        </div>
+
+        <label class="user-active-row">
+          <input type="checkbox" id="userActiveCheckbox" checked />
+          <span>Tài khoản đang hoạt động (bỏ chọn để tạm khóa đăng nhập)</span>
+        </label>
+
+        <div class="perm-section-box">
+          <div class="bcvh-section-title">Phân quyền chi tiết</div>
+          <div id="userPermsChecklist" class="perm-checklist"></div>
+        </div>
+
+        <div id="userFormError" class="login-error" hidden></div>
+
+        <div class="bcvh-modal-footer">
+          <button type="button" id="userCancelBtn" class="btn small">Hủy</button>
+          <button type="submit" id="userSaveBtn" class="btn small success-btn">Lưu tài khoản</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Create / Edit BCVH Modal -->
   <div id="bcvhModal" class="modal-backdrop" hidden>

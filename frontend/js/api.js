@@ -159,3 +159,27 @@ export function deleteBcvhOffice(id) {
     method: 'DELETE',
   });
 }
+
+export function fetchAdminUsers() {
+  return requestJson('/api/admin/users');
+}
+
+export function createAdminUser(payload) {
+  return requestJson('/api/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminUser(id, payload) {
+  return requestJson(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminUser(id) {
+  return requestJson(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
