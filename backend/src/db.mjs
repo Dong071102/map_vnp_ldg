@@ -334,6 +334,28 @@ export async function initDb() {
         );
         CREATE INDEX IX_ward_streets_ward ON dbo.ward_streets(ward_unit_id);
       END
+
+      IF OBJECT_ID(N'dbo.mail_routes', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.mail_routes (
+          id           INT IDENTITY(1,1) PRIMARY KEY,
+          ward_unit_id INT NOT NULL REFERENCES dbo.lamdong_admin_units(id) ON DELETE CASCADE,
+          name         NVARCHAR(255) NOT NULL,
+          code         NVARCHAR(64) NOT NULL DEFAULT N'',
+          color        NVARCHAR(16) NOT NULL DEFAULT N'#ea580c',
+          street_ids   NVARCHAR(MAX) NOT NULL DEFAULT N'[]',
+          street_names NVARCHAR(MAX) NOT NULL DEFAULT N'[]',
+          area_km2     FLOAT NOT NULL DEFAULT 0,
+          length_m     INT NOT NULL DEFAULT 0,
+          points_count INT NOT NULL DEFAULT 0,
+          modified     BIT NOT NULL DEFAULT 0,
+          geojson      NVARCHAR(MAX) NOT NULL,
+          geom         GEOMETRY NULL,
+          created_at   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+          updated_at   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+        );
+        CREATE INDEX IX_mail_routes_ward ON dbo.mail_routes(ward_unit_id);
+      END
     `);
 
     dbState = {
@@ -1665,6 +1687,234 @@ export async function unionGeoJsonGeometries(geometries = []) {
     points: stats.points,
     polygonParts,
   };
+}
+
+// --- Mail Routes (Tuyến đường thư) CRUD ---
+function hydrateMailRouteRow(row) {
+  let streetIds = [];
+  let streetNames = [];
+  let geojson = null;
+  try {
+    const parsed = JSON.parse(row.street_ids || '[]');
+    if (Array.isArray(parsed)) streetIds = parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  } catch {
+    streetIds = [];
+  }
+  try {
+    const parsed = JSON.parse(row.street_names || '[]');
+    if (Array.isArray(parsed)) streetNames = parsed.map(String);
+  } catch {
+    streetNames = [];
+  }
+  try {
+    geojson = typeof row.geojson === 'string' ? JSON.parse(row.geojson) : row.geojson;
+  } catch {
+    geojson = null;
+  }
+  return {
+    id: row.id,
+    wardUnitId: row.ward_unit_id,
+    wardName: row.ward_name || '',
+    name: row.name,
+    code: row.code || '',
+    color: row.color || '#ea580c',
+    streetIds,
+    streetNames,
+    areaKm2: Math.round((Number(row.area_km2) || 0) * 10000) / 10000,
+    lengthM: Number(row.length_m) || 0,
+    points: Number(row.points_count) || 0,
+    modified: Boolean(row.modified),
+    geojson,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function listMailRoutes(wardUnitId = null) {
+  const p = await getReadyPool();
+  const req = p.request();
+  let whereSql = '';
+  if (wardUnitId !== null && wardUnitId !== undefined && wardUnitId !== '') {
+    const numericId = Number(wardUnitId);
+    if (!Number.isInteger(numericId) || numericId <= 0) return [];
+    req.input('wardUnitId', sql.Int, numericId);
+    whereSql = 'WHERE m.ward_unit_id = @wardUnitId';
+  }
+  const res = await req.query(`
+    SELECT m.id, m.ward_unit_id, u.name AS ward_name, m.name, m.code, m.color,
+           m.street_ids, m.street_names, m.area_km2, m.length_m, m.points_count,
+           m.modified, m.geojson, m.created_at, m.updated_at
+    FROM dbo.mail_routes m
+    INNER JOIN dbo.lamdong_admin_units u ON u.id = m.ward_unit_id
+    ${whereSql}
+    ORDER BY m.id DESC
+  `);
+  return res.recordset.map(hydrateMailRouteRow);
+}
+
+export async function getMailRouteById(id) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) return null;
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('id', sql.Int, numericId)
+    .query(`
+      SELECT m.id, m.ward_unit_id, u.name AS ward_name, m.name, m.code, m.color,
+             m.street_ids, m.street_names, m.area_km2, m.length_m, m.points_count,
+             m.modified, m.geojson, m.created_at, m.updated_at
+      FROM dbo.mail_routes m
+      INNER JOIN dbo.lamdong_admin_units u ON u.id = m.ward_unit_id
+      WHERE m.id = @id
+    `);
+  return res.recordset[0] ? hydrateMailRouteRow(res.recordset[0]) : null;
+}
+
+export async function createMailRoute(payload) {
+  const wardUnitId = Number(payload?.wardUnitId);
+  if (!Number.isInteger(wardUnitId) || wardUnitId <= 0) {
+    throw new Error('Thiếu mã xã/phường (wardUnitId) hợp lệ.');
+  }
+  const name = String(payload?.name || '').trim().slice(0, 255);
+  if (!name) throw new Error('Vui lòng nhập tên tuyến đường thư.');
+  const code = String(payload?.code || '').trim().slice(0, 64);
+  const color = /^#[0-9a-fA-F]{6}$/.test(String(payload?.color || '')) ? payload.color : '#ea580c';
+  const streetIds = Array.isArray(payload?.streetIds)
+    ? [...new Set(payload.streetIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+    : [];
+  const streetNames = Array.isArray(payload?.streetNames)
+    ? payload.streetNames.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const lengthM = Math.max(0, Math.round(Number(payload?.lengthM) || 0));
+
+  const fc = payload?.geojson;
+  if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features) || fc.features.length === 0) {
+    throw new Error('GeoJSON tuyến đường thư không hợp lệ.');
+  }
+  const stats = computeGeoStats(fc, null);
+  const wkt = geojsonToMultiPolygonWkt(fc);
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('wardUnitId', sql.Int, wardUnitId)
+    .input('name', sql.NVarChar(255), name)
+    .input('code', sql.NVarChar(64), code)
+    .input('color', sql.NVarChar(16), color)
+    .input('streetIds', sql.NVarChar(sql.MAX), JSON.stringify(streetIds))
+    .input('streetNames', sql.NVarChar(sql.MAX), JSON.stringify(streetNames))
+    .input('areaKm2', sql.Float, Math.round(stats.areaKm2 * 10000) / 10000)
+    .input('lengthM', sql.Int, lengthM)
+    .input('pointsCount', sql.Int, stats.points)
+    .input('modified', sql.Bit, payload?.modified ? 1 : 0)
+    .input('geojson', sql.NVarChar(sql.MAX), JSON.stringify(fc))
+    .input('wkt', sql.NVarChar(sql.MAX), wkt)
+    .query(`
+      DECLARE @g GEOMETRY = NULL;
+      IF @wkt IS NOT NULL
+      BEGIN
+        BEGIN TRY
+          SET @g = geometry::STGeomFromText(@wkt, 4326);
+          IF @g.STIsValid() = 0 SET @g = @g.MakeValid();
+        END TRY
+        BEGIN CATCH
+          SET @g = NULL;
+        END CATCH
+      END
+
+      INSERT INTO dbo.mail_routes (
+        ward_unit_id, name, code, color, street_ids, street_names,
+        area_km2, length_m, points_count, modified, geojson, geom
+      )
+      OUTPUT INSERTED.id
+      VALUES (
+        @wardUnitId, @name, @code, @color, @streetIds, @streetNames,
+        @areaKm2, @lengthM, @pointsCount, @modified, @geojson, @g
+      );
+    `);
+  return getMailRouteById(res.recordset[0].id);
+}
+
+export async function updateMailRoute(id, payload) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new Error('ID tuyến đường thư không hợp lệ.');
+  }
+  const existing = await getMailRouteById(numericId);
+  if (!existing) throw new Error('Không tìm thấy tuyến đường thư.');
+
+  const name = payload?.name !== undefined ? String(payload.name || '').trim().slice(0, 255) : existing.name;
+  if (!name) throw new Error('Tên tuyến đường thư không được để trống.');
+  const code = payload?.code !== undefined ? String(payload.code || '').trim().slice(0, 64) : existing.code;
+  const color =
+    payload?.color !== undefined && /^#[0-9a-fA-F]{6}$/.test(String(payload.color))
+      ? payload.color
+      : existing.color;
+  const streetIds = Array.isArray(payload?.streetIds)
+    ? [...new Set(payload.streetIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+    : existing.streetIds;
+  const streetNames = Array.isArray(payload?.streetNames)
+    ? payload.streetNames.map((s) => String(s || '').trim()).filter(Boolean)
+    : existing.streetNames;
+  const lengthM = payload?.lengthM !== undefined ? Math.max(0, Math.round(Number(payload.lengthM) || 0)) : existing.lengthM;
+  const fc = payload?.geojson || existing.geojson;
+  const modified = payload?.modified !== undefined ? Boolean(payload.modified) : true;
+
+  const stats = computeGeoStats(fc, null);
+  const wkt = geojsonToMultiPolygonWkt(fc);
+  const p = await getReadyPool();
+  await p
+    .request()
+    .input('id', sql.Int, numericId)
+    .input('name', sql.NVarChar(255), name)
+    .input('code', sql.NVarChar(64), code)
+    .input('color', sql.NVarChar(16), color)
+    .input('streetIds', sql.NVarChar(sql.MAX), JSON.stringify(streetIds))
+    .input('streetNames', sql.NVarChar(sql.MAX), JSON.stringify(streetNames))
+    .input('areaKm2', sql.Float, Math.round(stats.areaKm2 * 10000) / 10000)
+    .input('lengthM', sql.Int, lengthM)
+    .input('pointsCount', sql.Int, stats.points)
+    .input('modified', sql.Bit, modified ? 1 : 0)
+    .input('geojson', sql.NVarChar(sql.MAX), JSON.stringify(fc))
+    .input('wkt', sql.NVarChar(sql.MAX), wkt)
+    .query(`
+      DECLARE @g GEOMETRY = NULL;
+      IF @wkt IS NOT NULL
+      BEGIN
+        BEGIN TRY
+          SET @g = geometry::STGeomFromText(@wkt, 4326);
+          IF @g.STIsValid() = 0 SET @g = @g.MakeValid();
+        END TRY
+        BEGIN CATCH
+          SET @g = NULL;
+        END CATCH
+      END
+
+      UPDATE dbo.mail_routes
+      SET name = @name,
+          code = @code,
+          color = @color,
+          street_ids = @streetIds,
+          street_names = @streetNames,
+          area_km2 = @areaKm2,
+          length_m = @lengthM,
+          points_count = @pointsCount,
+          modified = @modified,
+          geojson = @geojson,
+          geom = @g,
+          updated_at = SYSUTCDATETIME()
+      WHERE id = @id;
+    `);
+  return getMailRouteById(numericId);
+}
+
+export async function deleteMailRoute(id) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new Error('ID tuyến đường thư không hợp lệ.');
+  }
+  const p = await getReadyPool();
+  const res = await p.request().input('id', sql.Int, numericId).query('DELETE FROM dbo.mail_routes WHERE id = @id');
+  return (res.rowsAffected?.[0] || 0) > 0;
 }
 
 export async function closeDb() {

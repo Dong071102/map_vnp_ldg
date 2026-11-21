@@ -40,6 +40,11 @@ import {
   listWardStreetSummaries,
   getWardStreetsBundle,
   mergeWardStreetsByIds,
+  listMailRoutes,
+  getMailRouteById,
+  createMailRoute,
+  updateMailRoute,
+  deleteMailRoute,
   closeDb,
 } from './db.mjs';
 import { extractRegion, normalizeToFeatureCollection, hasUsableGeometry } from './wikiExtractor.mjs';
@@ -436,6 +441,81 @@ export function createAppServer() {
           sendJson(res, 200, merged);
         } catch (err) {
           sendJson(res, err.statusCode || 500, { error: err.message });
+        }
+        return;
+      }
+
+      // --- Mail Routes (Tuyến đường thư) CRUD + Shared-Border GeoJSON Editing ---
+      if (pathname === '/api/mail-routes' && req.method === 'GET') {
+        try {
+          const wardUnitId = reqUrl.searchParams.get('wardUnitId');
+          const routes = await listMailRoutes(wardUnitId);
+          sendJson(res, 200, { routes });
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      if (pathname === '/api/mail-routes' && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const fc = normalizeToFeatureCollection(body.geojson, { name: body.name || '' });
+          if (!fc || !hasUsableGeometry(fc)) {
+            sendJson(res, 400, { error: 'GeoJSON tuyến đường thư không hợp lệ hoặc trống.' });
+            return;
+          }
+          const route = await createMailRoute({ ...body, geojson: fc });
+          sendJson(res, 201, { route });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
+      const mailRouteIdMatch = pathname.match(/^\/api\/mail-routes\/(\d+)$/);
+      if (mailRouteIdMatch && req.method === 'PUT') {
+        try {
+          const routeId = Number(mailRouteIdMatch[1]);
+          const body = await readJsonBody(req);
+          const payload = { ...body };
+          if (body.geojson !== undefined) {
+            const fc = normalizeToFeatureCollection(body.geojson, { name: body.name || '' });
+            if (!fc || !hasUsableGeometry(fc)) {
+              sendJson(res, 400, { error: 'GeoJSON tuyến đường thư không hợp lệ (cần Polygon / MultiPolygon).' });
+              return;
+            }
+            payload.geojson = fc;
+          }
+          const route = await updateMailRoute(routeId, payload);
+
+          // Topological shared-border sync for neighboring mail routes in the same ward
+          const updatedNeighbors = [];
+          if (Array.isArray(body.neighborUpdates) && body.neighborUpdates.length > 0) {
+            for (const item of body.neighborUpdates) {
+              const nId = Number(item?.regionId || item?.routeId);
+              if (!Number.isInteger(nId) || nId <= 0 || nId === route.id) continue;
+              const existingN = await getMailRouteById(nId);
+              if (!existingN || existingN.wardUnitId !== route.wardUnitId) continue;
+              const nFc = normalizeToFeatureCollection(item.geojson, { name: existingN.name });
+              if (!nFc || !hasUsableGeometry(nFc)) continue;
+              const savedN = await updateMailRoute(nId, { geojson: nFc, modified: true });
+              updatedNeighbors.push(savedN);
+            }
+          }
+          sendJson(res, 200, { route, updatedNeighbors });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
+      if (mailRouteIdMatch && req.method === 'DELETE') {
+        try {
+          const deleted = await deleteMailRoute(mailRouteIdMatch[1]);
+          sendJson(res, deleted ? 200 : 404, { deleted });
+        } catch (err) {
+          sendJson(res, 400, { error: err.message });
         }
         return;
       }

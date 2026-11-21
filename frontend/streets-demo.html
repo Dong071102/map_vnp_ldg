@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tuyến đường &amp; Khu vực phát Bưu tá — 124 Xã/Phường Lâm Đồng 2025</title>
+  <title>Tuyến đường thư &amp; Khu vực phát Bưu tá — 124 Xã/Phường Lâm Đồng 2025</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -38,7 +38,7 @@
     .demo-stat-box span { display: block; font-size: 11px; color: var(--text-muted); }
     .demo-stat-box strong { font-size: 13px; color: var(--text); }
     .street-list {
-      max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px;
+      max-height: 310px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px;
     }
     .street-row {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -50,10 +50,32 @@
     .street-row-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
     .street-row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .street-row-meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-    .merged-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .merged-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .merged-box {
       margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
     }
+    .save-route-row {
+      display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    }
+    .save-route-row input[type="text"] {
+      flex: 1; height: 32px; padding: 0 9px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 12.5px;
+    }
+    .save-route-row input[type="color"] {
+      width: 34px; height: 32px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 7px; cursor: pointer;
+    }
+    .saved-routes-list {
+      max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px;
+    }
+    .saved-route-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 7px 9px; border-radius: 9px; border: 1px solid var(--border); background: #fff; cursor: pointer;
+    }
+    .saved-route-item:hover { background: #f8fafc; border-color: #94a3b8; }
+    .saved-route-item.active { background: #fff7ed; border-color: #ea580c; box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.14); }
+    .saved-route-main { min-width: 0; flex: 1; }
+    .saved-route-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--text); }
+    .saved-route-sub { margin-top: 2px; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .saved-route-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
     .street-label-pill {
       background: rgba(15, 23, 42, 0.88);
       border: 1px solid rgba(255, 255, 255, 0.3);
@@ -71,6 +93,16 @@
       color: #ffffff;
       border-color: var(--primary);
     }
+    .modal-route-meta {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .modal-route-name-input {
+      height: 30px; min-width: 220px; padding: 0 9px; border: 1px solid #cbd5e1; border-radius: 7px;
+      font-size: 13px; font-weight: 700; color: var(--text);
+    }
+    .modal-route-color-input {
+      width: 32px; height: 30px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 7px; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -78,13 +110,13 @@
     <div class="brand">
       <div class="brand-icon" aria-hidden="true">🛣</div>
       <div>
-        <h1>Tuyến đường &amp; Khu vực phát Bưu tá — Lâm Đồng 2025</h1>
-        <p>Chọn xã/phường → chọn các tuyến đường để xem riêng lẻ · Bấm "Gộp tuyến phát" để hòa thành 1 Polygon tổng</p>
+        <h1>Tuyến đường thư &amp; Khu vực phát — Lâm Đồng 2025</h1>
+        <p>Gộp các tuyến đường thành tuyến đường thư, lưu tên vào DB và chỉnh sửa đỉnh GeoJSON trực quan</p>
       </div>
     </div>
     <div class="topbar-right">
       <div id="statusBanner" class="status-banner" hidden></div>
-      <a id="downloadWardStreetsLink" class="btn small" href="#" hidden>⬇ Tải vùng đường (.geojson)</a>
+      <a id="downloadWardStreetsLink" class="btn small" href="#" hidden>⬇ Vùng đường (.geojson)</a>
       <a class="btn small admin-nav-btn" href="/">← Bản đồ chính</a>
     </div>
   </header>
@@ -94,45 +126,62 @@
       <div id="map"></div>
       <div class="map-toolbar">
         <div class="toolbar-group">
-          <button type="button" id="fitWardBtn" class="tool-btn">Căn giữa xã/phường</button>
-          <button type="button" id="toggleLabelsBtn" class="tool-btn active" title="Bật / tắt nhãn tên các tuyến đường trên bản đồ">🏷 Đang hiện tên đường</button>
+          <button type="button" id="fitWardBtn" class="tool-btn">Căn giữa xã</button>
+          <button type="button" id="toggleLabelsBtn" class="tool-btn active" title="Bật / tắt nhãn tên tuyến đường trên bản đồ">🏷 Đang hiện tên đường</button>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggleSavedRoutes" checked />
+            <span>📮 Tuyến đường thư đã lưu</span>
+          </label>
           <label class="checkbox-inline">
             <input type="checkbox" id="toggleZones" checked />
-            <span>Ô vùng đường (Voronoi)</span>
+            <span>Ô vùng đường</span>
           </label>
           <label class="checkbox-inline">
             <input type="checkbox" id="toggleLines" checked />
-            <span>Tim đường (OSM)</span>
+            <span>Tim đường</span>
           </label>
         </div>
         <div class="toolbar-group">
-          <span class="stat-pill" id="wardStatsPill">Đang tải danh sách 124 xã/phường...</span>
+          <span class="stat-pill" id="wardStatsPill">Đang tải...</span>
         </div>
       </div>
     </section>
 
     <aside class="inspector-panel">
+      <!-- Ward selector -->
       <div class="card">
         <div class="card-header">
           <h2>📍 Chọn Xã / Phường (<span id="totalWardsCount">124</span>)</h2>
           <span class="stat-pill" id="totalStreetsPill" style="font-size:11px;">0 tuyến</span>
         </div>
         <div class="ward-picker-bar">
-          <input id="wardFilterInput" type="text" class="region-search-input" style="max-width: 140px;" placeholder="Lọc xã..." />
+          <input id="wardFilterInput" type="text" class="region-search-input" style="max-width: 135px;" placeholder="Lọc xã..." />
           <select id="wardSelect"></select>
         </div>
       </div>
 
+      <!-- Saved Mail Routes Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📮 Tuyến đường thư đã lưu (<span id="savedRoutesCount">0</span>)</h2>
+        </div>
+        <div id="savedRoutesEmpty" class="empty-hint">
+          Chưa có tuyến đường thư nào trong xã/phường này. Chọn các đường bên dưới → bấm <strong>Gộp tuyến phát</strong> → đặt tên &amp; bấm <strong>Lưu</strong>.
+        </div>
+        <div id="savedRoutesList" class="saved-routes-list"></div>
+      </div>
+
+      <!-- Selected Streets & Merge/Save Box -->
       <div class="card">
         <div class="card-header" style="flex-wrap: wrap; gap: 6px;">
-          <h2>🛣 Đang chọn (<span id="selectedCount">0</span>)</h2>
+          <h2>🛣 Đường đang chọn (<span id="selectedCount">0</span>)</h2>
           <div class="header-actions">
             <button type="button" id="clearSelectedBtn" class="btn small">Bỏ chọn</button>
           </div>
         </div>
         <div style="padding: 10px 12px;">
           <div id="selectedHint" class="empty-hint" style="padding: 4px 0;">
-            Bấm chọn tuyến đường trên bản đồ hoặc danh sách bên dưới để <strong>xem riêng từng đường</strong>. Bấm <strong>Gộp tuyến phát</strong> khi muốn hòa thành 1 Polygon tổng.
+            Bấm chọn tuyến đường trên bản đồ hoặc danh sách bên dưới để <strong>xem riêng từng đường</strong>. Bấm <strong>Gộp tuyến phát</strong> khi muốn hòa thành 1 tuyến đường thư.
           </div>
           <div id="selectedChips" class="demo-chips"></div>
 
@@ -142,21 +191,29 @@
           </div>
 
           <div id="mergedBox" class="merged-box" hidden>
-            <div style="font-size: 12px; font-weight: 700; color: #c2410c;">📦 Kết quả khu vực phát đã gộp</div>
-            <div id="mergedStats" class="demo-stats-grid">
-              <div class="demo-stat-box"><span>Diện tích khu vực gộp</span><strong id="statArea">—</strong></div>
+            <div style="font-size: 12px; font-weight: 700; color: #c2410c;">📦 Khu vực tuyến đường thư đang gộp</div>
+            <div class="demo-stats-grid">
+              <div class="demo-stat-box"><span>Diện tích vùng gộp</span><strong id="statArea">—</strong></div>
               <div class="demo-stat-box"><span>Tổng chiều dài đường</span><strong id="statLength">—</strong></div>
               <div class="demo-stat-box"><span>Cấu trúc hình học</span><strong id="statParts">—</strong></div>
-              <div class="demo-stat-box"><span>Độ dài GeoJSON (1 dòng)</span><strong id="statChars">—</strong></div>
+              <div class="demo-stat-box"><span>GeoJSON (1 dòng)</span><strong id="statChars">—</strong></div>
             </div>
+
+            <div class="save-route-row">
+              <input id="mailRouteNameInput" type="text" placeholder="Nhập tên tuyến đường thư (vd: Tuyến 01 - Trung tâm)..." />
+              <input id="mailRouteColorInput" type="color" value="#ea580c" title="Màu hiển thị tuyến đường thư" />
+              <button type="button" id="saveMailRouteBtn" class="btn small success-btn">💾 Lưu</button>
+            </div>
+
             <div class="merged-actions">
-              <button type="button" id="copyMergedBtn" class="btn small primary">📋 Copy GeoJSON (1 dòng)</button>
-              <button type="button" id="downloadMergedBtn" class="btn small">⬇ Tải .geojson vùng gộp</button>
+              <button type="button" id="copyMergedBtn" class="btn small">📋 Copy GeoJSON (1 dòng)</button>
+              <button type="button" id="downloadMergedBtn" class="btn small">⬇ .geojson</button>
             </div>
           </div>
         </div>
       </div>
 
+      <!-- Street list in ward -->
       <div class="card">
         <div class="card-header">
           <h2>Danh sách tuyến đường (<span id="streetCount">0</span>)</h2>
@@ -168,6 +225,59 @@
       </div>
     </aside>
   </main>
+
+  <!-- Visual Polygon Vertex Editor Modal for Mail Route (same editor as Wards/Districts in /admin) -->
+  <div id="routeEditorModal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="routeEditorTitle">
+      <div class="modal-header">
+        <div>
+          <div class="modal-route-meta">
+            <h3 id="routeEditorTitle" style="margin:0;">✏ Sửa tuyến đường thư</h3>
+            <input id="editorRouteNameInput" type="text" class="modal-route-name-input" placeholder="Tên tuyến đường thư..." />
+            <input id="editorRouteColorInput" type="color" class="modal-route-color-input" title="Màu tuyến đường thư" />
+          </div>
+          <div id="routeEditorSubtitle" class="modal-subtitle"></div>
+        </div>
+        <div class="modal-header-actions">
+          <button type="button" id="editorSaveBtn" class="btn small success-btn" title="Lưu ranh giới & tên tuyến đường thư vào SQL Server">💾 Lưu vào DB</button>
+          <button type="button" id="editorRevertBtn" class="btn small danger-solid" title="Khôi phục theo dữ liệu đang lưu trong DB">↺ Reset</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
+          <button type="button" id="editorCopyBtn" class="btn small ghost-btn" title="Copy GeoJSON 1 dòng">📋 Copy</button>
+          <button type="button" id="editorDownloadBtn" class="btn small ghost-btn" title="Tải file .geojson">⬇ .geojson</button>
+          <button type="button" id="editorCloseBtn" class="mini-btn" title="Đóng (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-map-wrap">
+        <div id="routeEditorMap" style="width:100%;height:100%;"></div>
+        <div class="map-edit-toolbar" aria-label="Công cụ chỉnh sửa đa giác tuyến đường thư">
+          <button type="button" id="editorToggleEditBtn" class="btn small primary" title="Bật / tắt chế độ kéo đỉnh">
+            ✏ Sửa đỉnh
+          </button>
+          <button type="button" id="editorToggleTopoBtn" class="btn small active-topo" title="Đồng bộ biên chung với các tuyến đường thư lân cận trong cùng xã">
+            🔗 Biên chung
+          </button>
+          <button type="button" id="editorDrawPolyBtn" class="btn small" title="Vẽ thêm đa giác mới">
+            + Vẽ vùng
+          </button>
+          <button type="button" id="editorUndoBtn" class="btn small" title="Hoàn tác (Ctrl+Z)" disabled>↶</button>
+          <button type="button" id="editorRedoBtn" class="btn small" title="Làm lại (Ctrl+Y)" disabled>↷</button>
+          <span class="toolbar-sep" aria-hidden="true"></span>
+          <button type="button" id="editorToggleNeighborsBtn" class="btn small active-ref" title="Hiện / ẩn các tuyến đường thư khác trong cùng xã">
+            Tuyến khác
+          </button>
+          <button type="button" id="editorToggleRoadsBtn" class="btn small active-ref" title="Hiện / ẩn tim đường OSM để căn đỉnh theo mặt đường">
+            Tim đường OSM
+          </button>
+          <span id="editorVertexBadge" class="map-vertex-badge">0 đỉnh</span>
+        </div>
+        <div id="editorStatusToast" class="modal-editor-status map-editor-toast" hidden></div>
+        <div id="editorHint" class="map-edit-hint">
+          Kéo chấm để dời · <strong>Chuột phải cạnh</strong>: thêm nút · <strong>Chuột phải nút</strong>: xóa · <code>Ctrl+Z</code>: hoàn tác
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
