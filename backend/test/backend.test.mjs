@@ -186,7 +186,7 @@ test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () =
   assert.equal(row[11], 'BĐT Lâm Đồng');
   assert.equal(row[12], 'Nguyễn Văn A');
   assert.equal(row[13], '0888139797');
-  assert.equal(row[14], 5000);
+  assert.equal(row[14], 2000);
   assert.equal(row[16], 'ENABLE');
   assert.equal(row[17], 108.374667);
   assert.equal(row[18], 11.737758);

@@ -271,7 +271,7 @@ export function bcvhOfficeToNodeRow(office) {
     'BĐT Lâm Đồng',
     office.contactName || '',
     office.contactPhone || '',
-    5000,
+    2000,
     DEFAULT_WORK_HOURS,
     'ENABLE',
     lngVal,
