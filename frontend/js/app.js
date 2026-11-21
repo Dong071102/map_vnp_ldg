@@ -547,6 +547,12 @@ function buildBcvhCardHtml(office, pos) {
         }</div>`
       : '';
   const addrLine = office.address ? `<div>- Địa chỉ: ${escapeHtml(office.address)}</div>` : '';
+  const officeAreaLine =
+    office.officeAreaM2 !== null && office.officeAreaM2 !== undefined
+      ? `<div>- Diện tích trụ sở: <strong>${Number(office.officeAreaM2).toLocaleString('vi-VN')} m²</strong></div>`
+      : '';
+  const contactText = [office.contactName, office.contactPhone].filter(Boolean).join(' — ');
+  const contactLine = contactText ? `<div>- Liên hệ: ${escapeHtml(contactText)}</div>` : '';
   const areaText = office.totalAreaKm2
     ? ` · ~${office.totalAreaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} km²`
     : '';
@@ -563,6 +569,8 @@ function buildBcvhCardHtml(office, pos) {
     ${hostLine}
     ${coordLine}
     ${addrLine}
+    ${officeAreaLine}
+    ${contactLine}
     <div>- Phục vụ: <strong>${(office.wardUnitIds || []).length} xã/phường</strong>${areaText}${popText}</div>
     ${wardsPreview}
   </div>`;
@@ -781,8 +789,15 @@ function renderBcvhList() {
           ${escapeHtml(hostInfo)} · <strong>${(office.wardUnitIds || []).length} xã</strong>${escapeHtml(areaSuffix)}
         </div>
       </div>
-      <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
+      <div class="bcvh-item-actions">
+        <a class="btn small export-bcvh-excel-btn" href="/api/bcvh/${office.id}/export-excel" title="Xuất file Excel (.xlsx) theo mẫu VNPost cho BCVH này">Xuất Excel</a>
+        <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
+      </div>
     `;
+    const exportExcelBtn = item.querySelector('.export-bcvh-excel-btn');
+    exportExcelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
     const copyGeoBtn = item.querySelector('.copy-bcvh-geo-btn');
     copyGeoBtn.addEventListener('click', async (e) => {
       e.stopPropagation();

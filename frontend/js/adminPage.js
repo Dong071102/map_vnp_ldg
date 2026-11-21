@@ -119,6 +119,9 @@ const bcvhHostWardSelect = $('bcvhHostWardSelect');
 const bcvhLatInput = $('bcvhLatInput');
 const bcvhLngInput = $('bcvhLngInput');
 const bcvhAddressInput = $('bcvhAddressInput');
+const bcvhAreaM2Input = $('bcvhAreaM2Input');
+const bcvhContactNameInput = $('bcvhContactNameInput');
+const bcvhContactPhoneInput = $('bcvhContactPhoneInput');
 const bcvhSelectedCountBadge = $('bcvhSelectedCountBadge');
 const bcvhWardSearchInput = $('bcvhWardSearchInput');
 const bcvhWardDistrictFilter = $('bcvhWardDistrictFilter');
@@ -860,7 +863,7 @@ function renderBcvhTable() {
 
   const filtered = bcvhList.filter((o) => {
     if (!q) return true;
-    return `${o.name} ${o.code} ${o.hostWardName} ${o.address} ${(o.wardNames || []).join(' ')}`
+    return `${o.name} ${o.code} ${o.hostWardName} ${o.address} ${o.contactName || ''} ${o.contactPhone || ''} ${(o.wardNames || []).join(' ')}`
       .toLowerCase()
       .includes(q);
   });
@@ -877,6 +880,14 @@ function renderBcvhTable() {
     const coordText =
       o.lat !== null && o.lng !== null ? `${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}` : 'Tự động theo tâm xã đặt';
     const hostText = o.hostWardName || (o.lat !== null ? 'Theo tọa độ thủ công' : '—');
+    const extraParts = [];
+    if (o.officeAreaM2 !== null && o.officeAreaM2 !== undefined) {
+      extraParts.push(`${Number(o.officeAreaM2).toLocaleString('vi-VN')} m²`);
+    }
+    if (o.contactName) extraParts.push(o.contactName);
+    if (o.contactPhone) extraParts.push(o.contactPhone);
+    const extraLine = extraParts.join(' · ');
+
     const chipsHtml = (o.wardNames || [])
       .slice(0, 8)
       .map((name) => `<span class="bcvh-ward-chip${name === o.hostWardName ? ' host' : ''}">${name.replace(/</g, '&lt;')}</span>`)
@@ -895,6 +906,7 @@ function renderBcvhTable() {
           ${o.code ? `<span class="tag-layer-old"></span>` : ''}
         </div>
         ${o.address ? `<div class="sub-metric bcvh-addr"></div>` : ''}
+        ${extraLine ? `<div class="sub-metric bcvh-extra"></div>` : ''}
       </td>
       <td class="col-old-district">
         <div class="old-district-name bcvh-host"></div>
@@ -909,6 +921,7 @@ function renderBcvhTable() {
       </td>
       <td class="col-actions right-col">
         <div class="row-action-btns right-actions">
+          <a class="btn small" href="/api/bcvh/${o.id}/export-excel" title="Xuất file Excel theo mẫu VNPost cho BCVH này">📥 Excel</a>
           <button type="button" class="btn small primary edit-bcvh-btn">✏ Sửa</button>
           <button type="button" class="btn small danger-solid del-bcvh-btn" title="Xóa BCVH này">🗑</button>
         </div>
@@ -920,6 +933,8 @@ function renderBcvhTable() {
     if (codeTag) codeTag.textContent = o.code;
     const addrEl = tr.querySelector('.bcvh-addr');
     if (addrEl) addrEl.textContent = o.address;
+    const extraEl = tr.querySelector('.bcvh-extra');
+    if (extraEl) extraEl.textContent = extraLine;
     tr.querySelector('.bcvh-host').textContent = `🚚 ${hostText}`;
 
     tr.querySelector('.edit-bcvh-btn').addEventListener('click', () => openBcvhModal(o));
@@ -1048,6 +1063,12 @@ function openBcvhModal(existing = null) {
   bcvhLatInput.value = existing?.lat !== null && existing?.lat !== undefined ? String(existing.lat) : '';
   bcvhLngInput.value = existing?.lng !== null && existing?.lng !== undefined ? String(existing.lng) : '';
   bcvhAddressInput.value = existing?.address || '';
+  if (bcvhAreaM2Input) {
+    bcvhAreaM2Input.value =
+      existing?.officeAreaM2 !== null && existing?.officeAreaM2 !== undefined ? String(existing.officeAreaM2) : '';
+  }
+  if (bcvhContactNameInput) bcvhContactNameInput.value = existing?.contactName || '';
+  if (bcvhContactPhoneInput) bcvhContactPhoneInput.value = existing?.contactPhone || '';
   bcvhWardSearchInput.value = '';
   bcvhFormError.hidden = true;
 
@@ -1138,6 +1159,9 @@ bcvhForm?.addEventListener('submit', async (e) => {
       code: bcvhCodeInput.value.trim(),
       color: bcvhColorInput.value || '#ea580c',
       address: bcvhAddressInput.value.trim(),
+      officeAreaM2: bcvhAreaM2Input?.value.trim() === '' ? null : Number(bcvhAreaM2Input.value.trim().replace(',', '.')),
+      contactName: bcvhContactNameInput?.value.trim() || '',
+      contactPhone: bcvhContactPhoneInput?.value.trim() || '',
       hostUnitId: bcvhHostWardSelect.value ? Number(bcvhHostWardSelect.value) : null,
       lat: bcvhLatInput.value.trim() === '' ? null : Number(bcvhLatInput.value.trim().replace(',', '.')),
       lng: bcvhLngInput.value.trim() === '' ? null : Number(bcvhLngInput.value.trim().replace(',', '.')),

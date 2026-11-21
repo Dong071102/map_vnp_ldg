@@ -1881,6 +1881,26 @@ a.admin-nav-btn {
   line-height: 1.4;
 }
 
+.bcvh-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+a.btn.export-bcvh-excel-btn {
+  text-decoration: none;
+  color: #15803d;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  white-space: nowrap;
+}
+
+a.btn.export-bcvh-excel-btn:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
 .bcvh-truck-marker {
   background: transparent;
   border: none;

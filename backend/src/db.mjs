@@ -279,6 +279,9 @@ export async function initDb() {
           lat               FLOAT NULL,
           lng               FLOAT NULL,
           address           NVARCHAR(500) NOT NULL DEFAULT N'',
+          office_area_m2    FLOAT NULL,
+          contact_name      NVARCHAR(255) NOT NULL DEFAULT N'',
+          contact_phone     NVARCHAR(64) NOT NULL DEFAULT N'',
           service_geojson   NVARCHAR(MAX) NULL,
           service_geom      GEOMETRY NULL,
           computed_area_km2 FLOAT NOT NULL DEFAULT 0,
@@ -298,6 +301,18 @@ export async function initDb() {
       IF COL_LENGTH(N'dbo.bcvh_offices', N'computed_area_km2') IS NULL
       BEGIN
         ALTER TABLE dbo.bcvh_offices ADD computed_area_km2 FLOAT NOT NULL CONSTRAINT DF_bcvh_computed_area DEFAULT 0;
+      END
+      IF COL_LENGTH(N'dbo.bcvh_offices', N'office_area_m2') IS NULL
+      BEGIN
+        ALTER TABLE dbo.bcvh_offices ADD office_area_m2 FLOAT NULL;
+      END
+      IF COL_LENGTH(N'dbo.bcvh_offices', N'contact_name') IS NULL
+      BEGIN
+        ALTER TABLE dbo.bcvh_offices ADD contact_name NVARCHAR(255) NOT NULL CONSTRAINT DF_bcvh_contact_name DEFAULT N'';
+      END
+      IF COL_LENGTH(N'dbo.bcvh_offices', N'contact_phone') IS NULL
+      BEGIN
+        ALTER TABLE dbo.bcvh_offices ADD contact_phone NVARCHAR(64) NOT NULL CONSTRAINT DF_bcvh_contact_phone DEFAULT N'';
       END
     `);
 
@@ -946,6 +961,17 @@ function validateBcvhInput(payload) {
   const code = String(payload.code || '').trim().slice(0, 64);
   const color = /^#[0-9a-fA-F]{6}$/.test(String(payload.color || '')) ? payload.color : '#ea580c';
   const address = String(payload.address || '').trim().slice(0, 500);
+  const contactName = String(payload.contactName || '').trim().slice(0, 255);
+  const contactPhone = String(payload.contactPhone || '').trim().slice(0, 64);
+
+  let officeAreaM2 = null;
+  if (payload.officeAreaM2 !== '' && payload.officeAreaM2 != null) {
+    const n = Number(String(payload.officeAreaM2).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error('Diện tích (m²) không hợp lệ (phải là số >= 0).');
+    }
+    officeAreaM2 = Math.round(n * 100) / 100;
+  }
 
   const rawIds = Array.isArray(payload.wardUnitIds) ? payload.wardUnitIds : [];
   const wardUnitIds = [...new Set(rawIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
@@ -971,7 +997,19 @@ function validateBcvhInput(payload) {
     throw new Error('Vui lòng chọn ít nhất 1 xã phục vụ hoặc nhập tọa độ vị trí BCVH.');
   }
 
-  return { code, name: name.slice(0, 255), color, wardUnitIds, hostUnitId, lat, lng, address };
+  return {
+    code,
+    name: name.slice(0, 255),
+    color,
+    wardUnitIds,
+    hostUnitId,
+    lat,
+    lng,
+    address,
+    officeAreaM2,
+    contactName,
+    contactPhone,
+  };
 }
 
 function hydrateBcvhRow(row, unitById) {
@@ -1021,6 +1059,9 @@ function hydrateBcvhRow(row, unitById) {
     lat: row.lat !== null && row.lat !== undefined ? Number(row.lat) : null,
     lng: row.lng !== null && row.lng !== undefined ? Number(row.lng) : null,
     address: row.address || '',
+    officeAreaM2: row.office_area_m2 !== null && row.office_area_m2 !== undefined ? Number(row.office_area_m2) : null,
+    contactName: row.contact_name || '',
+    contactPhone: row.contact_phone || '',
     totalAreaKm2: Math.round(totalAreaKm2 * 100) / 100,
     computedAreaKm2: Number(row.computed_area_km2) || 0,
     totalPop2025,
@@ -1277,6 +1318,7 @@ export async function listBcvhOffices() {
   const [officesRes, unitMap] = await Promise.all([
     p.request().query(`
       SELECT id, code, name, color, ward_unit_ids, host_unit_id, lat, lng, address,
+             office_area_m2, contact_name, contact_phone,
              service_geojson, computed_area_km2, created_at, updated_at
       FROM dbo.bcvh_offices
       ORDER BY id ASC
@@ -1317,6 +1359,7 @@ export async function getBcvhOfficeById(id) {
       .input('id', sql.Int, numericId)
       .query(`
         SELECT id, code, name, color, ward_unit_ids, host_unit_id, lat, lng, address,
+               office_area_m2, contact_name, contact_phone,
                service_geojson, computed_area_km2, created_at, updated_at
         FROM dbo.bcvh_offices
         WHERE id = @id
@@ -1349,10 +1392,19 @@ export async function createBcvhOffice(payload) {
     .input('lat', sql.Float, input.lat)
     .input('lng', sql.Float, input.lng)
     .input('address', sql.NVarChar(500), input.address)
+    .input('officeAreaM2', sql.Float, input.officeAreaM2)
+    .input('contactName', sql.NVarChar(255), input.contactName)
+    .input('contactPhone', sql.NVarChar(64), input.contactPhone)
     .query(`
-      INSERT INTO dbo.bcvh_offices (code, name, color, ward_unit_ids, host_unit_id, lat, lng, address)
+      INSERT INTO dbo.bcvh_offices (
+        code, name, color, ward_unit_ids, host_unit_id, lat, lng, address,
+        office_area_m2, contact_name, contact_phone
+      )
       OUTPUT INSERTED.*
-      VALUES (@code, @name, @color, @wardUnitIds, @hostUnitId, @lat, @lng, @address)
+      VALUES (
+        @code, @name, @color, @wardUnitIds, @hostUnitId, @lat, @lng, @address,
+        @officeAreaM2, @contactName, @contactPhone
+      )
     `);
   const unitMap = await loadUnitLookupMap(p);
   const computedRow = await computeAndPersistBcvhZone(p, res.recordset[0], unitMap);
@@ -1382,6 +1434,9 @@ export async function updateBcvhOffice(id, payload) {
     .input('lat', sql.Float, input.lat)
     .input('lng', sql.Float, input.lng)
     .input('address', sql.NVarChar(500), input.address)
+    .input('officeAreaM2', sql.Float, input.officeAreaM2)
+    .input('contactName', sql.NVarChar(255), input.contactName)
+    .input('contactPhone', sql.NVarChar(64), input.contactPhone)
     .query(`
       UPDATE dbo.bcvh_offices
       SET code = @code,
@@ -1392,6 +1447,9 @@ export async function updateBcvhOffice(id, payload) {
           lat = @lat,
           lng = @lng,
           address = @address,
+          office_area_m2 = @officeAreaM2,
+          contact_name = @contactName,
+          contact_phone = @contactPhone,
           updated_at = SYSUTCDATETIME()
       OUTPUT INSERTED.*
       WHERE id = @id

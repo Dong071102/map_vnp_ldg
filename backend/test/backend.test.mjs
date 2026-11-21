@@ -5,6 +5,13 @@ import { extractMultiPolygonGeometry, geojsonToMultiPolygonWkt } from '../src/db
 import { loadLamDongUnitsFromLocalFile, normalizeWikiMapUrl } from '../src/lamdongParser.mjs';
 import { loadOpenDataBundle } from '../src/openDataImporter.mjs';
 import { verifyCredentials, createSession, getSessionFromRequest, destroySession } from '../src/auth.mjs';
+import {
+  parseBcvhCode,
+  formatAdminPath,
+  buildExcelSafePolygonOneLine,
+  bcvhOfficeToNodeRow,
+  buildBcvhWorkbookBuffer,
+} from '../src/bcvhExcel.mjs';
 import { ringAreaSqMeters, computeGeoStats, bboxesOverlap } from '../../frontend/js/geometry.js';
 
 test('parseInput handles Vietnamese Wikipedia URL with map hash, mobile URL, and direct QID', () => {
@@ -116,4 +123,89 @@ test('auth verifies default lamdong/Lamdong@2026 credentials and session lifecyc
   assert.equal(getSessionFromRequest(fakeReq)?.username, 'lamdong');
   destroySession(s.token);
   assert.equal(getSessionFromRequest(fakeReq), null);
+});
+
+test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () => {
+  assert.deepEqual(parseBcvhCode('LDGV004|801060'), { nodeCode: 'LDGV004', deptCode: '801060' });
+  assert.deepEqual(parseBcvhCode('LDGV00G/673380'), { nodeCode: 'LDGV00G', deptCode: '673380' });
+  assert.equal(formatAdminPath('Xã Đức Trọng'), 'Tỉnh Lâm Đồng/X. Đức Trọng');
+  assert.equal(formatAdminPath('Phường Xuân Hương - Đà Lạt'), 'Tỉnh Lâm Đồng/P. Xuân Hương - Đà Lạt');
+  assert.equal(formatAdminPath('Đặc khu Phú Quý'), 'Tỉnh Lâm Đồng/Đặc khu Phú Quý');
+
+  const multi = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates: [
+            [[[108.0, 11.0], [108.01, 11.0], [108.01, 11.01], [108.0, 11.01], [108.0, 11.0]]],
+            [
+              [[108.2, 11.2], [108.6, 11.2], [108.6, 11.6], [108.2, 11.6], [108.2, 11.2]],
+              [[108.3, 11.3], [108.4, 11.3], [108.4, 11.4], [108.3, 11.4], [108.3, 11.3]],
+            ],
+          ],
+        },
+      },
+    ],
+  };
+  const oneLine = buildExcelSafePolygonOneLine(multi);
+  assert.ok(!oneLine.includes('\n'));
+  const parsed = JSON.parse(oneLine);
+  assert.equal(parsed.type, 'Polygon');
+  assert.equal(parsed.coordinates.length, 1, 'must drop interior holes and pick largest outer ring');
+
+  const row = bcvhOfficeToNodeRow({
+    code: 'LDGV00G/673380',
+    name: 'BCVH Đức Trọng',
+    hostWardName: 'Xã Đức Trọng',
+    address: 'QL20 Đức Trọng',
+    officeAreaM2: 180,
+    contactName: 'Nguyễn Văn A',
+    contactPhone: '0888139797',
+    lng: 108.374667,
+    lat: 11.737758,
+    serviceGeojson: multi,
+  });
+  assert.equal(row.length, 23);
+  assert.equal(row[0], 'LDGV00G');
+  assert.equal(row[1], 'BCVH Đức Trọng');
+  assert.equal(row[2], 'POST_OFFICE');
+  assert.equal(row[3], 'OPERATIONS_POST_OFFICE');
+  assert.equal(row[4], 'SELF_OPERATED_COLLECTION_AND_DELIVERY');
+  assert.equal(row[5], 'VNPOST');
+  assert.equal(row[6], 'OWNED');
+  assert.equal(row[7], 180);
+  assert.equal(row[8], 'Tỉnh Lâm Đồng/X. Đức Trọng');
+  assert.equal(row[9], 'QL20 Đức Trọng');
+  assert.equal(row[10], '67');
+  assert.equal(row[11], 'BĐT Lâm Đồng');
+  assert.equal(row[12], 'Nguyễn Văn A');
+  assert.equal(row[13], '0888139797');
+  assert.equal(row[14], 5000);
+  assert.equal(row[16], 'ENABLE');
+  assert.equal(row[17], 108.374667);
+  assert.equal(row[18], 11.737758);
+  assert.equal(row[20], 'POLYGON');
+  assert.equal(row[21], '');
+  assert.equal(row[22], '673380');
+
+  const buf = buildBcvhWorkbookBuffer([
+    {
+      code: 'LDGV00G/673380',
+      name: 'BCVH Đức Trọng',
+      hostWardName: 'Xã Đức Trọng',
+      address: 'QL20 Đức Trọng',
+      officeAreaM2: 180,
+      contactName: 'Nguyễn Văn A',
+      contactPhone: '0888139797',
+      lng: 108.374667,
+      lat: 11.737758,
+      serviceGeojson: multi,
+    },
+  ]);
+  assert.ok(Buffer.isBuffer(buf) && buf.length > 500);
+  assert.equal(buf.readUInt32LE(0), 0x04034b50, 'valid ZIP local header signature');
 });

@@ -46,6 +46,7 @@ import {
   fetchLamDongUnitsFromWikipedia,
 } from './lamdongParser.mjs';
 import { loadOpenDataBundle, normalizeAdminName } from './openDataImporter.mjs';
+import { buildBcvhWorkbookBuffer } from './bcvhExcel.mjs';
 import { computeGeoStats } from '../../frontend/js/geometry.js';
 
 const PALETTE = [
@@ -71,6 +72,27 @@ const MIME_TYPES = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 };
+
+function sendXlsxDownload(res, buffer, unicodeFilename, asciiFilename) {
+  res.writeHead(200, {
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(unicodeFilename)}`,
+    'Content-Length': String(buffer.length),
+    'Cache-Control': 'no-store',
+  });
+  res.end(buffer);
+}
+
+function toSafeSlug(str, fallback = 'bcvh') {
+  const cleaned = String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+}
 
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
   res.writeHead(statusCode, {
@@ -338,6 +360,45 @@ export function createAppServer() {
           sendJson(res, 200, { offices, db: getDbStatus() });
         } catch (err) {
           sendJson(res, 503, { error: err.message, db: getDbStatus() });
+        }
+        return;
+      }
+
+      if (pathname === '/api/bcvh/export-excel' && req.method === 'GET') {
+        try {
+          const offices = await listBcvhOffices();
+          const buf = buildBcvhWorkbookBuffer(offices);
+          sendXlsxDownload(
+            res,
+            buf,
+            'Nhập_dữ_liệu_nút-Tat_ca_BCVH.xlsx',
+            'Nhap_du_lieu_nut-Tat_ca_BCVH.xlsx',
+          );
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      const bcvhExcelMatch = pathname.match(/^\/api\/bcvh\/(\d+)\/export-excel$/);
+      if (bcvhExcelMatch && req.method === 'GET') {
+        try {
+          const office = await getBcvhOfficeById(bcvhExcelMatch[1]);
+          if (!office) {
+            sendJson(res, 404, { error: 'Không tìm thấy Bưu cục Vận hành.' });
+            return;
+          }
+          const buf = buildBcvhWorkbookBuffer([office]);
+          const safeUnicodeName = String(office.name || 'BCVH').replace(/[\\/:*?"<>|]/g, '').trim().replace(/\s+/g, '_');
+          const safeAsciiName = toSafeSlug(office.name, `BCVH_${office.id}`);
+          sendXlsxDownload(
+            res,
+            buf,
+            `Nhập_dữ_liệu_nút-${safeUnicodeName || 'BCVH'}.xlsx`,
+            `Nhap_du_lieu_nut-${safeAsciiName}.xlsx`,
+          );
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
         }
         return;
       }
