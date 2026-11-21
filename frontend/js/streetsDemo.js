@@ -28,6 +28,9 @@ const selectedHint = $('selectedHint');
 const selectedChips = $('selectedChips');
 const mergeRoutesBtn = $('mergeRoutesBtn');
 const unmergeBtn = $('unmergeBtn');
+const addToExistingBox = $('addToExistingBox');
+const targetExistingRouteSelect = $('targetExistingRouteSelect');
+const appendToRouteBtn = $('appendToRouteBtn');
 const mergedBox = $('mergedBox');
 const statArea = $('statArea');
 const statLength = $('statLength');
@@ -330,6 +333,7 @@ function renderSavedRoutesList() {
     frag.appendChild(item);
   }
   savedRoutesListEl.appendChild(frag);
+  updateAddToExistingBox();
 }
 
 async function fetchSavedRoutesForWard(wardUnitId) {
@@ -395,11 +399,32 @@ function fitSelectedStreets() {
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [44, 44], maxZoom: 16 });
 }
 
+function updateAddToExistingBox() {
+  if (!addToExistingBox || !targetExistingRouteSelect) return;
+  const canAppend = isAdmin && savedRoutes.length > 0 && selectedIds.size > 0;
+  addToExistingBox.hidden = !canAppend;
+  if (!canAppend) return;
+
+  const prevVal = Number(targetExistingRouteSelect.value) || activeSavedRouteId || savedRoutes[0]?.id;
+  targetExistingRouteSelect.innerHTML = '';
+  for (const r of savedRoutes) {
+    const opt = document.createElement('option');
+    opt.value = String(r.id);
+    opt.textContent = `${r.name} (${r.streetNames?.length || 0} đường · ${r.areaKm2.toFixed(2)} km²)`;
+    if (r.id === prevVal) opt.selected = true;
+    targetExistingRouteSelect.appendChild(opt);
+  }
+}
+
+function getStreetOwnerRoutes(streetId) {
+  return savedRoutes.filter((r) => (r.streetIds || []).includes(streetId));
+}
+
 async function runMergeSelectedStreets() {
   if (selectedIds.size === 0) return;
   mergeRoutesBtn.disabled = true;
   mergeRoutesBtn.textContent = 'Đang gộp...';
-  setStatus(`Đang gộp ${selectedIds.size} tuyến đường bằng SQL Server...`, 'success');
+  setStatus(`Đang gộp ${selectedIds.size} đường bằng SQL Server...`, 'success');
 
   try {
     const res = await fetch('/api/streets/merge', {
@@ -420,13 +445,13 @@ async function runMergeSelectedStreets() {
     statArea.textContent = `${data.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km²`;
     statLength.textContent = `${(data.totalLengthM / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`;
     statParts.textContent =
-      data.polygonParts === 1 ? '1 Polygon liền khối ✓' : `${data.polygonParts} mảnh rời (MultiPolygon)`;
+      data.polygonParts === 1 ? '1 Polygon liền khối ✓' : `⚠ ${data.polygonParts} mảnh rời (không liền kề)`;
     statChars.textContent = `${data.oneLineGeojson.length.toLocaleString('vi-VN')} ký tự`;
     mailRouteColorInput.value = pickNextRouteColor();
     if (!mailRouteNameInput.value.trim()) {
       const nextNum = String(savedRoutes.length + 1).padStart(2, '0');
       const shortNames = data.streetNames.slice(0, 2).join(' - ');
-      mailRouteNameInput.value = `Tuyến ${nextNum} (${shortNames}${data.streetNames.length > 2 ? '...' : ''})`;
+      mailRouteNameInput.value = `Khu vực ${nextNum} (${shortNames}${data.streetNames.length > 2 ? '...' : ''})`;
     }
     mergedBox.hidden = false;
     unmergeBtn.hidden = false;
@@ -434,26 +459,103 @@ async function runMergeSelectedStreets() {
 
     const b = layer.getBounds();
     if (b.isValid()) map.fitBounds(b, { padding: [50, 50], maxZoom: 16 });
+    const warnParts = data.polygonParts > 1 ? ` ⚠ Lưu ý: tạo thành ${data.polygonParts} mảnh rời nhau.` : '';
     setStatus(
-      `Đã gộp ${data.streetNames.length} tuyến đường (${data.areaKm2.toFixed(3)} km²). Đặt tên và bấm "💾 Lưu" để lưu tuyến đường thư.`,
+      `Đã gộp ${data.streetNames.length} đường (${data.areaKm2.toFixed(3)} km²).${warnParts}`,
+      data.polygonParts > 1 ? 'error' : 'success',
+    );
+  } catch (err) {
+    setStatus(`Lỗi gộp khu vực phát: ${err.message}`, 'error');
+  } finally {
+    mergeRoutesBtn.disabled = selectedIds.size === 0;
+    mergeRoutesBtn.textContent = '🔀 Gộp khu vực phát';
+  }
+}
+
+appendToRouteBtn.addEventListener('click', async () => {
+  if (!isAdmin || selectedIds.size === 0) return;
+  const routeId = Number(targetExistingRouteSelect.value);
+  if (!routeId) return;
+
+  appendToRouteBtn.disabled = true;
+  appendToRouteBtn.textContent = 'Đang kiểm tra...';
+  try {
+    const callAppend = async (force) => {
+      const res = await fetch(`/api/mail-routes/${routeId}/add-streets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streetIds: [...selectedIds], force }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi thêm đường vào khu vực phát');
+      return data;
+    };
+
+    let result = await callAppend(false);
+    if (result.needsConfirm && Array.isArray(result.warnings) && result.warnings.length > 0) {
+      const msg =
+        `⚠ CẢNH BÁO KHI THÊM ĐƯỜNG VÀO "${result.targetRouteName}":\n\n` +
+        result.warnings.map((w) => `• ${w}`).join('\n') +
+        '\n\nBạn vẫn muốn tiếp tục thêm vào khu vực phát này không?';
+      if (!window.confirm(msg)) {
+        setStatus(`Đã hủy thêm đường: ${result.warnings[0]}`, 'error');
+        return;
+      }
+      appendToRouteBtn.textContent = 'Đang gộp...';
+      result = await callAppend(true);
+    }
+
+    const idx = savedRoutes.findIndex((x) => x.id === result.route.id);
+    if (idx >= 0) savedRoutes[idx] = result.route;
+    activeSavedRouteId = result.route.id;
+    selectedIds.clear();
+    syncSelectionUI();
+    renderSavedRoutesList();
+    renderSavedRoutesOnMap();
+    const lyr = savedRouteLayerById.get(result.route.id);
+    if (lyr?.getBounds()?.isValid()) map.fitBounds(lyr.getBounds(), { padding: [48, 48], maxZoom: 16 });
+    setStatus(
+      `Đã thêm ${result.addedNames.length} đường (${result.addedNames.join(', ')}) vào khu vực phát "${result.route.name}" (${result.route.areaKm2.toFixed(3)} km²).`,
       'success',
     );
   } catch (err) {
-    setStatus(`Lỗi gộp tuyến đường: ${err.message}`, 'error');
+    setStatus(`Lỗi thêm vào khu vực phát: ${err.message}`, 'error');
   } finally {
-    mergeRoutesBtn.disabled = selectedIds.size === 0;
-    mergeRoutesBtn.textContent = '🔀 Gộp tuyến phát';
+    appendToRouteBtn.disabled = false;
+    appendToRouteBtn.textContent = '+ Thêm vào KV';
   }
-}
+});
 
 saveMailRouteBtn.addEventListener('click', async () => {
   if (!latestMerged || !bundle) return;
   const name = mailRouteNameInput.value.trim();
   if (!name) {
-    setStatus('Vui lòng nhập tên tuyến đường thư trước khi lưu.', 'error');
+    setStatus('Vui lòng nhập tên khu vực phát trước khi lưu.', 'error');
     mailRouteNameInput.focus();
     return;
   }
+
+  // Check warnings before creating a new Khu vực phát: duplicate streets in other areas OR non-adjacent pieces
+  const warnings = [];
+  for (const sid of latestMerged.streetIds || []) {
+    const st = bundle.streets.find((s) => s.id === sid);
+    const owners = getStreetOwnerRoutes(sid);
+    for (const ow of owners) {
+      warnings.push(`Đường "${st?.name || sid}" đã thuộc khu vực phát "${ow.name}".`);
+    }
+  }
+  if ((latestMerged.polygonParts || 1) > 1) {
+    warnings.push(`Các đường đã chọn không nằm liền cạnh nhau (tạo thành ${latestMerged.polygonParts} mảnh rời).`);
+  }
+  if (warnings.length > 0) {
+    const ok = window.confirm(
+      `⚠ CẢNH BÁO KHI TẠO KHU VỰC PHÁT "${name}":\n\n` +
+        warnings.map((w) => `• ${w}`).join('\n') +
+        '\n\nBạn vẫn muốn lưu khu vực phát này không?',
+    );
+    if (!ok) return;
+  }
+
   saveMailRouteBtn.disabled = true;
   saveMailRouteBtn.textContent = 'Đang lưu...';
   try {
@@ -481,7 +583,7 @@ saveMailRouteBtn.addEventListener('click', async () => {
       }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Lỗi lưu tuyến đường thư');
+    if (!res.ok) throw new Error(data.error || 'Lỗi lưu khu vực phát');
 
     savedRoutes.unshift(data.route);
     activeSavedRouteId = data.route.id;
@@ -490,9 +592,9 @@ saveMailRouteBtn.addEventListener('click', async () => {
     syncSelectionUI();
     renderSavedRoutesList();
     renderSavedRoutesOnMap();
-    setStatus(`Đã lưu tuyến đường thư "${data.route.name}" vào SQL Server. Bấm "✏ Sửa" để chỉnh sửa đỉnh GeoJSON.`, 'success');
+    setStatus(`Đã lưu khu vực phát "${data.route.name}" vào SQL Server. Bấm "✏ Sửa" để chỉnh sửa đỉnh GeoJSON.`, 'success');
   } catch (err) {
-    setStatus(`Lỗi lưu tuyến đường thư: ${err.message}`, 'error');
+    setStatus(`Lỗi lưu khu vực phát: ${err.message}`, 'error');
   } finally {
     saveMailRouteBtn.disabled = false;
     saveMailRouteBtn.textContent = '💾 Lưu';
@@ -781,13 +883,14 @@ function syncSelectionUI({ shouldFit = false } = {}) {
   renderStreetList();
   updateStreetStyles();
   renderStreetLabels();
+  updateAddToExistingBox();
 
   if (selectedIds.size > 0) {
     const names = [...selectedIds]
       .map((id) => bundle.streets.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(', ');
-    setStatus(`Đang xem riêng ${selectedIds.size} đường: ${names}. Bấm "🔀 Gộp tuyến phát" để gộp & lưu.`, 'success');
+    setStatus(`Đang xem riêng ${selectedIds.size} đường: ${names}. Bấm "🔀 Gộp khu vực phát" hoặc "+ Thêm vào KV".`, 'success');
     if (shouldFit) fitSelectedStreets();
   }
 }
@@ -817,6 +920,10 @@ function renderStreetList() {
   const frag = document.createDocumentFragment();
   for (const st of filtered) {
     const isSel = selectedIds.has(st.id);
+    const owners = getStreetOwnerRoutes(st.id);
+    const ownerTag = owners.length
+      ? `<span class="street-owner-badge" title="Đã thuộc khu vực phát: ${owners.map((o) => o.name).join(', ')}">📮 ${owners[0].name.replace(/</g, '&lt;')}</span>`
+      : '';
     const row = document.createElement('div');
     row.className = `street-row${isSel ? ' selected' : ''}`;
     row.innerHTML = `
@@ -824,6 +931,7 @@ function renderStreetList() {
         <input type="checkbox" ${isSel ? 'checked' : ''} />
         <span class="color-dot" style="background:${streetColor(st.id)}"></span>
         <span class="street-row-name"></span>
+        ${ownerTag}
       </div>
       <span class="street-row-meta">${(st.lengthM / 1000).toFixed(2)} km · ${st.areaKm2.toFixed(2)} km²</span>
     `;
@@ -1006,8 +1114,9 @@ function applyAdminPermissionsUI() {
   if (saveRouteRow) saveRouteRow.hidden = !isAdmin;
   if (adminOnlySaveHint) adminOnlySaveHint.hidden = isAdmin;
   if (savedRoutesEmpty && !isAdmin) {
-    savedRoutesEmpty.textContent = 'Chưa có tuyến đường thư nào trong xã/phường này.';
+    savedRoutesEmpty.textContent = 'Chưa có khu vực phát nào trong xã/phường này.';
   }
+  updateAddToExistingBox();
 }
 
 async function init() {
@@ -1027,7 +1136,7 @@ async function init() {
   allWardSummaries = data.wards || [];
   totalWardsCount.textContent = String(allWardSummaries.length);
   const totalStreets = allWardSummaries.reduce((acc, w) => acc + w.streetCount, 0);
-  totalStreetsPill.textContent = `${totalStreets.toLocaleString('vi-VN')} tuyến`;
+  totalStreetsPill.textContent = `${totalStreets.toLocaleString('vi-VN')} đường`;
 
   const defaultWard =
     allWardSummaries.find((w) => w.wardName.toLowerCase().includes('xuân hương')) ||

@@ -1907,6 +1907,200 @@ export async function updateMailRoute(id, payload) {
   return getMailRouteById(numericId);
 }
 
+export async function addStreetsToMailRoute(routeId, streetIds = [], { force = false } = {}) {
+  const numericId = Number(routeId);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new Error('ID khu vực phát không hợp lệ.');
+  }
+  const cleanIds = [...new Set((Array.isArray(streetIds) ? streetIds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (cleanIds.length === 0) {
+    throw new Error('Vui lòng chọn ít nhất 1 tuyến đường để thêm.');
+  }
+
+  const target = await getMailRouteById(numericId);
+  if (!target) throw new Error('Không tìm thấy khu vực phát này.');
+
+  const p = await getReadyPool();
+  const streetsRes = await p
+    .request()
+    .input('wardUnitId', sql.Int, target.wardUnitId)
+    .input('idsJson', sql.NVarChar(sql.MAX), JSON.stringify(cleanIds))
+    .query(`
+      SELECT s.id, s.street_name AS name, s.length_m AS lengthM
+      FROM dbo.ward_streets s
+      INNER JOIN OPENJSON(@idsJson) j ON s.id = TRY_CAST(j.value AS INT)
+      WHERE s.ward_unit_id = @wardUnitId
+      ORDER BY s.street_name ASC
+    `);
+
+  const targetStreetSet = new Set(target.streetIds || []);
+  const newStreets = streetsRes.recordset.filter((s) => !targetStreetSet.has(s.id));
+  if (newStreets.length === 0) {
+    throw new Error(`Các đường đã chọn đều đã nằm trong khu vực phát "${target.name}".`);
+  }
+
+  // 1. Check conflicts: streets already belonging to ANOTHER delivery area in the same ward
+  const allRoutesInWard = await listMailRoutes(target.wardUnitId);
+  const otherRoutes = allRoutesInWard.filter((r) => r.id !== target.id);
+  const conflicts = [];
+  for (const st of newStreets) {
+    for (const other of otherRoutes) {
+      if ((other.streetIds || []).includes(st.id)) {
+        conflicts.push({
+          streetId: st.id,
+          streetName: st.name,
+          routeId: other.id,
+          routeName: other.name,
+        });
+      }
+    }
+  }
+
+  // 2. Check spatial adjacency in SQL Server (BFS from target.geom across newStreets.zone_geom)
+  const newIds = newStreets.map((s) => s.id);
+  const adjRes = await p
+    .request()
+    .input('routeId', sql.Int, target.id)
+    .input('idsJson', sql.NVarChar(sql.MAX), JSON.stringify(newIds))
+    .query(`
+      DECLARE @targetGeom GEOMETRY = (SELECT geom FROM dbo.mail_routes WHERE id = @routeId);
+      WITH picked AS (
+        SELECT s.id, s.street_name AS name, s.zone_geom
+        FROM dbo.ward_streets s
+        INNER JOIN OPENJSON(@idsJson) j ON s.id = TRY_CAST(j.value AS INT)
+        WHERE s.zone_geom IS NOT NULL
+      )
+      SELECT
+        p1.id AS id1,
+        p1.name AS name1,
+        CASE WHEN @targetGeom IS NOT NULL THEN @targetGeom.STDistance(p1.zone_geom) ELSE 0 END AS distToTarget,
+        (
+          SELECT p2.id
+          FROM picked p2
+          WHERE p2.id <> p1.id AND p1.zone_geom.STDistance(p2.zone_geom) <= 0.00015
+          FOR JSON PATH
+        ) AS neighborsJson
+      FROM picked p1;
+    `);
+
+  const ADJ_DEG = 0.00015; // ~15m tolerance for touching Voronoi boundaries
+  const nodeMap = new Map();
+  for (const r of adjRes.recordset) {
+    const nbs = r.neighborsJson ? JSON.parse(r.neighborsJson).map((x) => x.id) : [];
+    nodeMap.set(r.id1, {
+      id: r.id1,
+      name: r.name1,
+      distToTarget: Number(r.distToTarget) || 0,
+      neighbors: nbs,
+    });
+  }
+  const connected = new Set();
+  const queue = [];
+  for (const node of nodeMap.values()) {
+    if (node.distToTarget <= ADJ_DEG) {
+      connected.add(node.id);
+      queue.push(node.id);
+    }
+  }
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    for (const nbId of nodeMap.get(cur)?.neighbors || []) {
+      if (!connected.has(nbId)) {
+        connected.add(nbId);
+        queue.push(nbId);
+      }
+    }
+  }
+
+  const nonAdjacent = [];
+  for (const st of newStreets) {
+    if (!connected.has(st.id)) {
+      const distDeg = nodeMap.get(st.id)?.distToTarget ?? 0;
+      const distM = Math.round(distDeg * 111000);
+      nonAdjacent.push({ streetId: st.id, streetName: st.name, distanceM: distM });
+    }
+  }
+
+  const warnings = [];
+  for (const c of conflicts) {
+    warnings.push(`Đường "${c.streetName}" đã thuộc khu vực phát "${c.routeName}".`);
+  }
+  for (const na of nonAdjacent) {
+    warnings.push(
+      `Đường "${na.streetName}" không nằm cạnh khu vực phát "${target.name}"${na.distanceM > 0 ? ` (cách ~${na.distanceM.toLocaleString('vi-VN')} m)` : ''}.`,
+    );
+  }
+
+  if (warnings.length > 0 && !force) {
+    return {
+      needsConfirm: true,
+      targetRouteName: target.name,
+      warnings,
+      conflicts,
+      nonAdjacent,
+    };
+  }
+
+  // 3. Dissolve target.geom + newStreets.zone_geom into one updated polygon
+  const unionRes = await p
+    .request()
+    .input('routeId', sql.Int, target.id)
+    .input('idsJson', sql.NVarChar(sql.MAX), JSON.stringify(newIds))
+    .query(`
+      WITH geoms AS (
+        SELECT geom AS g FROM dbo.mail_routes WHERE id = @routeId AND geom IS NOT NULL
+        UNION ALL
+        SELECT s.zone_geom AS g
+        FROM dbo.ward_streets s
+        INNER JOIN OPENJSON(@idsJson) j ON s.id = TRY_CAST(j.value AS INT)
+        WHERE s.zone_geom IS NOT NULL
+      )
+      SELECT geometry::UnionAggregate(g.MakeValid().STBuffer(0.000008))
+        .STBuffer(-0.000008)
+        .Reduce(0.000005)
+        .MakeValid()
+        .STAsText() AS wkt
+      FROM geoms;
+    `);
+
+  const mergedWkt = unionRes.recordset[0]?.wkt;
+  const mergedGeom = mergedWkt ? wktToGeoJsonGeometry(mergedWkt) : null;
+  if (!mergedGeom) throw new Error('Không thể gộp hình học các đường mới vào khu vực phát.');
+
+  const mergedStreetIds = [...new Set([...(target.streetIds || []), ...newIds])];
+  const mergedStreetNames = [...new Set([...(target.streetNames || []), ...newStreets.map((s) => s.name)])].sort((a, b) =>
+    a.localeCompare(b, 'vi'),
+  );
+  const addedLen = newStreets.reduce((acc, s) => acc + (Number(s.lengthM) || 0), 0);
+  const nextFc = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: { name: target.name, ward: target.wardName, streets: mergedStreetNames },
+        geometry: mergedGeom,
+      },
+    ],
+  };
+
+  const updatedRoute = await updateMailRoute(target.id, {
+    streetIds: mergedStreetIds,
+    streetNames: mergedStreetNames,
+    lengthM: (target.lengthM || 0) + addedLen,
+    geojson: nextFc,
+    modified: target.modified,
+  });
+
+  return {
+    needsConfirm: false,
+    route: updatedRoute,
+    addedNames: newStreets.map((s) => s.name),
+    warnings,
+    conflicts,
+    nonAdjacent,
+  };
+}
+
 export async function deleteMailRoute(id) {
   const numericId = Number(id);
   if (!Number.isInteger(numericId) || numericId <= 0) {

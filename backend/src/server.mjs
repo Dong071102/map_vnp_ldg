@@ -44,6 +44,7 @@ import {
   getMailRouteById,
   createMailRoute,
   updateMailRoute,
+  addStreetsToMailRoute,
   deleteMailRoute,
   closeDb,
 } from './db.mjs';
@@ -468,6 +469,23 @@ export function createAppServer() {
           }
           const route = await createMailRoute({ ...body, geojson: fc });
           sendJson(res, 201, { route });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
+      const mailRouteAddStreetsMatch = pathname.match(/^\/api\/mail-routes\/(\d+)\/add-streets$/);
+      if (mailRouteAddStreetsMatch && req.method === 'POST') {
+        if (!requireAdmin(req, res)) return;
+        try {
+          const body = await readJsonBody(req);
+          const result = await addStreetsToMailRoute(
+            mailRouteAddStreetsMatch[1],
+            Array.isArray(body.streetIds) ? body.streetIds : [],
+            { force: Boolean(body.force) },
+          );
+          sendJson(res, 200, result);
         } catch (err) {
           sendJson(res, err.statusCode || 400, { error: err.message });
         }
