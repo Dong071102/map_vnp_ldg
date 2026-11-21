@@ -451,8 +451,12 @@ async function runMergeSelectedStreets() {
 
     statArea.textContent = `${data.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km²`;
     statLength.textContent = `${(data.totalLengthM / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`;
-    statParts.textContent =
-      data.polygonParts === 1 ? '1 Polygon liền khối ✓' : `⚠ ${data.polygonParts} mảnh rời (không liền kề)`;
+    const isContiguous = data.isContiguous !== false;
+    statParts.textContent = isContiguous
+      ? data.polygonParts === 1
+        ? '1 Polygon liền khối ✓'
+        : `Liền kề ✓ (${data.polygonParts} phần)`
+      : `⚠ ${data.connectedComponents} cụm rời nhau`;
     statChars.textContent = `${data.oneLineGeojson.length.toLocaleString('vi-VN')} ký tự`;
     mailRouteColorInput.value = pickNextRouteColor();
     if (!mailRouteNameInput.value.trim()) {
@@ -466,10 +470,10 @@ async function runMergeSelectedStreets() {
 
     const b = layer.getBounds();
     if (b.isValid()) map.fitBounds(b, { padding: [50, 50], maxZoom: 16 });
-    const warnParts = data.polygonParts > 1 ? ` ⚠ Lưu ý: tạo thành ${data.polygonParts} mảnh rời nhau.` : '';
+    const warnParts = !isContiguous ? ` ⚠ Lưu ý: tách thành ${data.connectedComponents} cụm không liền kề.` : '';
     setStatus(
-      `Đã gộp ${data.streetNames.length} đường (${data.areaKm2.toFixed(3)} km²).${warnParts}`,
-      data.polygonParts > 1 ? 'error' : 'success',
+      `Đã gộp ${data.streetNames.length} tuyến đường (${data.areaKm2.toFixed(3)} km²).${warnParts}`,
+      !isContiguous ? 'error' : 'success',
     );
   } catch (err) {
     setStatus(`Lỗi gộp khu vực phát: ${err.message}`, 'error');
@@ -542,17 +546,22 @@ saveMailRouteBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Check warnings before creating a new Khu vực phát: duplicate streets in other areas OR non-adjacent pieces
+  // Check warnings before creating a new Khu vực phát: duplicate streets in other areas OR truly disconnected street groups
   const warnings = [];
   for (const sid of latestMerged.streetIds || []) {
     const st = bundle.streets.find((s) => s.id === sid);
     const owners = getStreetOwnerRoutes(sid);
     for (const ow of owners) {
-      warnings.push(`Đường "${st?.name || sid}" đã thuộc khu vực phát "${ow.name}".`);
+      warnings.push(`Tuyến đường "${st?.name || sid}" đã thuộc khu vực phát "${ow.name}".`);
     }
   }
-  if ((latestMerged.polygonParts || 1) > 1) {
-    warnings.push(`Các đường đã chọn không nằm liền cạnh nhau (tạo thành ${latestMerged.polygonParts} mảnh rời).`);
+  if (latestMerged.isContiguous === false && (latestMerged.connectedComponents || 1) > 1) {
+    const groupsText = (latestMerged.disconnectedGroups || [])
+      .map((g) => `(${g.slice(0, 3).join(', ')}${g.length > 3 ? '...' : ''})`)
+      .join(' ↔ ');
+    warnings.push(
+      `Các tuyến đường đã chọn tách thành ${latestMerged.connectedComponents} cụm không nằm liền cạnh nhau: ${groupsText}.`,
+    );
   }
   if (warnings.length > 0) {
     const ok = window.confirm(

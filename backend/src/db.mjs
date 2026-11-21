@@ -1619,7 +1619,21 @@ export async function mergeWardStreetsByIds(streetIds = []) {
         INNER JOIN OPENJSON(@idsJson) j ON s.id = TRY_CAST(j.value AS INT)
       )
       SELECT
-        (SELECT id, street_name AS name, length_m AS lengthM FROM picked ORDER BY street_name ASC FOR JSON PATH) AS metaJson,
+        (
+          SELECT p1.id, p1.street_name AS name, p1.length_m AS lengthM,
+                 (
+                   SELECT p2.id
+                   FROM picked p2
+                   WHERE p2.id <> p1.id
+                     AND p1.zone_geom IS NOT NULL
+                     AND p2.zone_geom IS NOT NULL
+                     AND p1.zone_geom.STDistance(p2.zone_geom) <= 0.00015
+                   FOR JSON PATH
+                 ) AS neighborsJson
+          FROM picked p1
+          ORDER BY p1.street_name ASC
+          FOR JSON PATH
+        ) AS metaJson,
         (
           SELECT geometry::UnionAggregate(zone_geom.MakeValid().STBuffer(0.000008))
             .STBuffer(-0.000008)
@@ -1637,6 +1651,37 @@ export async function mergeWardStreetsByIds(streetIds = []) {
   if (!geom) return null;
 
   const metaList = row.metaJson ? JSON.parse(row.metaJson) : [];
+  const metaById = new Map(metaList.map((m) => [m.id, m]));
+  // Compute true street-to-street connected components (BFS) so a single pinched road never triggers a false disconnect warning
+  const visited = new Set();
+  const disconnectedGroups = [];
+  for (const m of metaList) {
+    if (visited.has(m.id)) continue;
+    const comp = [];
+    const queue = [m.id];
+    visited.add(m.id);
+    while (queue.length > 0) {
+      const curId = queue.shift();
+      const cur = metaById.get(curId);
+      if (!cur) continue;
+      comp.push(cur.name);
+      const nbs = Array.isArray(cur.neighborsJson)
+        ? cur.neighborsJson
+        : cur.neighborsJson
+          ? JSON.parse(cur.neighborsJson)
+          : [];
+      for (const nb of nbs) {
+        if (!visited.has(nb.id) && metaById.has(nb.id)) {
+          visited.add(nb.id);
+          queue.push(nb.id);
+        }
+      }
+    }
+    disconnectedGroups.push(comp);
+  }
+  const connectedComponents = disconnectedGroups.length;
+  const isContiguous = connectedComponents <= 1;
+
   const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geom }] };
   const stats = computeGeoStats(fc, null);
   const polygonParts = geom.type === 'MultiPolygon' ? geom.coordinates.length : 1;
@@ -1649,6 +1694,9 @@ export async function mergeWardStreetsByIds(streetIds = []) {
     areaKm2: Math.round(stats.areaKm2 * 10000) / 10000,
     points: stats.points,
     polygonParts,
+    connectedComponents,
+    isContiguous,
+    disconnectedGroups,
     oneLineGeojson: JSON.stringify(geom),
   };
 }
