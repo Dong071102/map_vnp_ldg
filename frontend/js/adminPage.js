@@ -180,7 +180,13 @@ function updateEditorToolbarUI({
 function syncFromMapEditor(updatedGeojson, { reason, dirtyNeighborNames = [] } = {}) {
   currentPreviewGeojson = updatedGeojson;
   const stats = computeGeoStats(updatedGeojson, null);
-  if (reason === 'move-vertex' || reason === 'insert-vertex' || reason === 'delete-vertex' || reason === 'draw-polygon') {
+  if (
+    reason === 'move-vertex' ||
+    reason === 'insert-vertex' ||
+    reason === 'delete-vertex' ||
+    reason === 'delete-vertex-batch' ||
+    reason === 'draw-polygon'
+  ) {
     const neighborNote = dirtyNeighborNames.length
       ? ` · đồng bộ cùng ${dirtyNeighborNames.length} xã giáp ranh (${dirtyNeighborNames.join(', ')})`
       : '';

@@ -544,8 +544,8 @@ function ensureEditorMap() {
       editorHint.innerHTML = drawing
         ? '<strong>Đang vẽ vùng mới:</strong> Bấm chuột trái để đặt từng đỉnh · Bấm vào <strong>chấm xanh đầu tiên</strong>, double-click hoặc <code>Enter</code> để khép · <code>Esc</code> để hủy'
         : topoEnabled && neighborCount > 0
-          ? '<strong>🔗 Đồng bộ biên chung đang BẬT:</strong> Kéo/thêm/xóa đỉnh trên cạnh giáp tuyến khác sẽ <strong>tự khớp 2 tuyến</strong> · <strong>Chuột phải cạnh</strong>: thêm nút · <strong>Chuột phải nút</strong>: xóa'
-          : 'Kéo chấm để dời · <strong>Chuột phải cạnh</strong>: thêm nút · <strong>Chuột phải nút</strong>: xóa · <code>Ctrl+Z</code>: hoàn tác';
+          ? '<strong>🔗 Biên chung đang BẬT:</strong> <strong>Chuột trái cạnh</strong>: thêm nút · <strong>Kéo nút</strong>: dời đồng bộ · <strong>Alt + chuột trái quét</strong>: xóa hàng loạt nút'
+          : '<strong>Chuột trái lên cạnh</strong>: thêm nút · <strong>Kéo nút</strong>: dời · <strong>Giữ Alt + chuột trái quét</strong>: xóa hàng loạt nút · <code>Ctrl+Z</code>: hoàn tác';
     },
   });
 }

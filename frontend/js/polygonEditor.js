@@ -186,6 +186,17 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
     }),
   });
 
+  const eraserBrushMarker = L.marker([0, 0], {
+    interactive: false,
+    pane: 'polyEditorGhostPane',
+    icon: L.divIcon({
+      className: 'poly-eraser-brush',
+      html: '<span></span>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    }),
+  });
+
   let geojson = { type: 'FeatureCollection', features: [] };
   let color = '#2563eb';
   let editEnabled = true;
@@ -194,6 +205,13 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
   let drawing = false;
   let drawPoints = [];
   let drawCursorLatLng = null;
+
+  // Alt + Left-Mouse-Button batch vertex eraser state
+  const ALT_ERASE_RADIUS_PX = 18;
+  let altErasing = false;
+  let altErasePushedUndo = false;
+  let altErasedCount = 0;
+  let altErasedSyncedNames = new Set();
 
   // Editable neighboring ward states for topological shared-border sync
   // Each item: { id, name, color, geojson, dirty, polyLayer, labelLayer }
@@ -520,7 +538,10 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
           }).addTo(rootGroup);
 
           edgeHitLayer.on('mousemove', (e) => {
-            if (drawing) return;
+            if (drawing || altErasing || e.originalEvent?.altKey) {
+              hideEdgeSnapDot();
+              return;
+            }
             const liveUnique = getUniqueRingCoords(getRingFromFc(geojson, featureIdx, polyIdx, ringIdx));
             const snap = findClosestEdgeLocation(liveUnique, e.latlng);
             if (snap && snap.distPx <= 18) {
@@ -533,10 +554,9 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
 
           edgeHitLayer.on('mouseout', () => hideEdgeSnapDot());
 
-          // Right-click on edge -> insert vertex on ward A AND any matching shared edge of neighbors
-          edgeHitLayer.on('contextmenu', (e) => {
+          const handleInsertVertexOnEdge = (e) => {
             stopEvent(e);
-            if (drawing) return;
+            if (drawing || altErasing || e.originalEvent?.altKey) return;
 
             const liveUnique = getUniqueRingCoords(getRingFromFc(geojson, featureIdx, polyIdx, ringIdx));
             const snap = findClosestEdgeLocation(liveUnique, e.latlng);
@@ -558,7 +578,11 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
             emitChange('insert-vertex', { syncedNames });
             const syncNote = syncedNames.length ? ` (đã đồng bộ biên chung với ${syncedNames.join(', ')})` : '';
             onStatus?.(`Đã thêm nút mới (#${snap.insertIndex + 1})${syncNote}.`, 'success');
-          });
+          };
+
+          // Left-click (primary) or right-click (fallback) on edge -> insert vertex
+          edgeHitLayer.on('click', handleInsertVertexOnEdge);
+          edgeHitLayer.on('contextmenu', handleInsertVertexOnEdge);
 
           // Vertex handles
           unique.forEach(([lng, lat], vertexIdx) => {
@@ -582,8 +606,8 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
             const el = marker.getElement();
             if (el) {
               el.title = isShared
-                ? `Đỉnh biên chung với: ${Array.from(sharedWith).join(', ')} · Kéo để chỉnh đồng bộ · Chuột phải xóa`
-                : `Đỉnh #${vertexIdx + 1} · Kéo để chỉnh vị trí · Chuột phải để xóa`;
+                ? `Đỉnh biên chung với: ${Array.from(sharedWith).join(', ')} · Kéo chuột trái để chỉnh · Alt+chuột trái quét để xóa`
+                : `Đỉnh #${vertexIdx + 1} · Kéo chuột trái để chỉnh · Alt+chuột trái quét để xóa`;
             }
 
             let dragPushedUndo = false;
@@ -838,6 +862,130 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
     onStatus?.('Đã hủy vẽ vùng mới.', 'warn');
   }
 
+  // --- Alt + Left-Mouse-Button Brush Eraser (hover sweep to batch-delete vertices) ---
+  function hideEraserBrush() {
+    if (map.hasLayer(eraserBrushMarker)) map.removeLayer(eraserBrushMarker);
+  }
+
+  function updateEraserBrushAtEvent(e) {
+    const ll = map.mouseEventToLatLng(e);
+    if (!map.hasLayer(eraserBrushMarker)) eraserBrushMarker.addTo(map);
+    eraserBrushMarker.setLatLng(ll);
+  }
+
+  function eraseVerticesNearEvent(e) {
+    const pt = map.mouseEventToContainerPoint(e);
+    const rSq = ALT_ERASE_RADIUS_PX * ALT_ERASE_RADIUS_PX;
+    let erasedNow = 0;
+
+    // Inspect every polygon ring and delete vertices within brush radius (keeping >= 3 vertices per ring)
+    forEachPolygonRing(geojson, (fIdx, pIdx, rIdx, rawRing) => {
+      const liveUnique = getUniqueRingCoords(rawRing);
+      if (liveUnique.length <= 3) return;
+
+      const toDeleteIndices = [];
+      for (let vIdx = 0; vIdx < liveUnique.length; vIdx++) {
+        const [lng, lat] = liveUnique[vIdx];
+        const vPt = map.latLngToContainerPoint([lat, lng]);
+        const dx = vPt.x - pt.x;
+        const dy = vPt.y - pt.y;
+        if (dx * dx + dy * dy <= rSq) {
+          toDeleteIndices.push(vIdx);
+        }
+      }
+      if (toDeleteIndices.length === 0) return;
+
+      // Never collapse ring below 3 vertices
+      const maxRemovable = liveUnique.length - 3;
+      const cut = toDeleteIndices.slice(0, maxRemovable);
+      if (cut.length === 0) return;
+
+      if (!altErasePushedUndo) {
+        pushUndo();
+        altErasePushedUndo = true;
+      }
+
+      // Delete from highest index downward so indices stay valid
+      for (let i = cut.length - 1; i >= 0; i--) {
+        const idx = cut[i];
+        const targetCoord = liveUnique[idx];
+        liveUnique.splice(idx, 1);
+        erasedNow++;
+        altErasedCount++;
+        const synced = deleteMatchingNeighborVertices(targetCoord);
+        for (const name of synced) altErasedSyncedNames.add(name);
+      }
+      setRingOnFc(geojson, fIdx, pIdx, rIdx, liveUnique);
+    });
+
+    if (erasedNow > 0) {
+      renderAll();
+      updateEraserBrushAtEvent(e);
+    }
+  }
+
+  function onAltEraseMove(e) {
+    if (!altErasing) return;
+    if (!(e.buttons & 1) || !e.altKey) {
+      stopAltErase();
+      return;
+    }
+    e.preventDefault();
+    updateEraserBrushAtEvent(e);
+    eraseVerticesNearEvent(e);
+  }
+
+  function stopAltErase() {
+    if (!altErasing) return;
+    altErasing = false;
+    hideEraserBrush();
+    map.getContainer().classList.remove('is-alt-erasing');
+    map.dragging.enable();
+    window.removeEventListener('mousemove', onAltEraseMove, true);
+    window.removeEventListener('mouseup', stopAltErase, true);
+    window.removeEventListener('blur', stopAltErase);
+    window.removeEventListener('keyup', onAltKeyUp);
+
+    if (altErasedCount > 0) {
+      const syncedNames = Array.from(altErasedSyncedNames);
+      emitChange('delete-vertex-batch', { count: altErasedCount, syncedNames });
+      const syncNote = syncedNames.length ? ` · đồng bộ trên ${syncedNames.join(', ')}` : '';
+      onStatus?.(`Đã xóa ${altErasedCount} nút bằng Alt+chuột trái${syncNote} (Ctrl+Z để hoàn tác).`, 'success');
+    }
+    altErasePushedUndo = false;
+    altErasedCount = 0;
+    altErasedSyncedNames.clear();
+  }
+
+  function onAltKeyUp(e) {
+    if (e.key === 'Alt') stopAltErase();
+  }
+
+  // Capture-phase listener intercepts Alt+Left-Click BEFORE Leaflet marker drag or map pan
+  map.getContainer().addEventListener(
+    'mousedown',
+    (e) => {
+      if (!editEnabled || drawing) return;
+      if (!e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      hideEdgeSnapDot();
+      altErasing = true;
+      altErasePushedUndo = false;
+      altErasedCount = 0;
+      altErasedSyncedNames.clear();
+      map.dragging.disable();
+      map.getContainer().classList.add('is-alt-erasing');
+      updateEraserBrushAtEvent(e);
+      eraseVerticesNearEvent(e);
+      window.addEventListener('mousemove', onAltEraseMove, true);
+      window.addEventListener('mouseup', stopAltErase, true);
+      window.addEventListener('blur', stopAltErase);
+      window.addEventListener('keyup', onAltKeyUp);
+    },
+    true,
+  );
+
   map.getContainer().addEventListener('contextmenu', (e) => {
     if (editEnabled || drawing) e.preventDefault();
   });
@@ -887,6 +1035,7 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
   }
 
   function setEditEnabled(enabled) {
+    if (altErasing && !enabled) stopAltErase();
     if (drawing && !enabled) cancelDrawing();
     editEnabled = Boolean(enabled);
     renderAll();
@@ -924,6 +1073,7 @@ export function createPolygonEditor(map, { onChange, onStatus, onHistoryChange }
   }
 
   function clear() {
+    if (altErasing) stopAltErase();
     if (drawing) stopDrawingListeners();
     geojson = { type: 'FeatureCollection', features: [] };
     neighborStates = [];
