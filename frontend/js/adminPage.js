@@ -20,6 +20,7 @@ import { computeGeoStats, serializeGeometryOneLine } from './geometry.js';
 import { initAdminTab } from './admin.js';
 import { createPolygonEditor } from './polygonEditor.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
+import { notify, confirmNoti } from './notify.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -605,15 +606,16 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-modalRevertBtn.addEventListener('click', () => {
+modalRevertBtn.addEventListener('click', async () => {
   if (!savedDbGeojson) return;
-  if (
-    !window.confirm(
-      '⚠ Xác nhận Reset về dữ liệu đang lưu trong DB?\nMọi thay đổi đỉnh chưa lưu trên bản đồ hiện tại sẽ bị hủy bỏ.',
-    )
-  ) {
-    return;
-  }
+  const ok = await confirmNoti({
+    title: 'Khôi phục ranh giới theo DB',
+    message: 'Mọi thay đổi đỉnh chưa lưu trên bản đồ hiện tại sẽ bị hủy bỏ.',
+    tone: 'danger',
+    confirmText: 'Đồng ý Reset',
+    cancelText: 'Không',
+  });
+  if (!ok) return;
   currentPreviewGeojson = savedDbGeojson;
   const polyColor =
     currentPreviewMode === 'district'
@@ -991,9 +993,14 @@ function renderBcvhTable() {
 
     tr.querySelector('.edit-bcvh-btn').addEventListener('click', () => openBcvhModal(o));
     tr.querySelector('.del-bcvh-btn').addEventListener('click', async () => {
-      if (!window.confirm(`⚠ Xác nhận xóa Bưu cục Vận hành "${o.name}"?\nThao tác này không xóa dữ liệu các xã.`)) {
-        return;
-      }
+      const ok = await confirmNoti({
+        title: `Xóa "${o.name}"`,
+        message: 'Xác nhận xóa Bưu cục Vận hành này? Thao tác không xóa dữ liệu các xã.',
+        tone: 'danger',
+        confirmText: 'Đồng ý xóa',
+        cancelText: 'Không',
+      });
+      if (!ok) return;
       try {
         await deleteBcvhOffice(o.id);
         bcvhList = bcvhList.filter((x) => x.id !== o.id);
@@ -1267,13 +1274,9 @@ bcvhForm?.addEventListener('submit', async (e) => {
 });
 
 function setStatus(message, type = 'success') {
-  if (!message) {
-    statusBanner.hidden = true;
-    return;
-  }
-  statusBanner.textContent = message;
-  statusBanner.className = `status-banner ${type}`;
-  statusBanner.hidden = false;
+  if (statusBanner) statusBanner.hidden = true;
+  if (!message) return;
+  notify(message, { type });
 }
 
 function updateDbPill(db) {

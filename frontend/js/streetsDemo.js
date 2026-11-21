@@ -1,5 +1,6 @@
 import { createPolygonEditor } from './polygonEditor.js';
 import { serializeGeometryOneLine } from './geometry.js';
+import { notify, confirmNoti } from './notify.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -129,10 +130,9 @@ let editingSavedGeojson = null;
 let editingSavedNeighbors = [];
 
 function setStatus(msg, type = 'success') {
-  if (!msg) { statusBanner.hidden = true; return; }
-  statusBanner.textContent = msg;
-  statusBanner.className = `status-banner ${type}`;
-  statusBanner.hidden = false;
+  if (statusBanner) statusBanner.hidden = true;
+  if (!msg) return;
+  notify(msg, { type });
 }
 
 function setEditorToast(msg, type = 'success') {
@@ -322,7 +322,14 @@ function renderSavedRoutesList() {
     if (delBtn) {
       delBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!window.confirm(`Xác nhận xóa tuyến đường thư "${r.name}"?`)) return;
+        const ok = await confirmNoti({
+          title: `Xóa khu vực phát "${r.name}"`,
+          message: 'Khu vực phát này sẽ bị xóa khỏi SQL Server (không xóa dữ liệu tuyến đường gốc).',
+          tone: 'danger',
+          confirmText: 'Đồng ý xóa',
+          cancelText: 'Không',
+        });
+        if (!ok) return;
         try {
           const res = await fetch(`/api/mail-routes/${r.id}`, { method: 'DELETE' });
           if (!res.ok) throw new Error((await res.json()).error || 'Lỗi xóa');
@@ -504,12 +511,16 @@ appendToRouteBtn.addEventListener('click', async () => {
 
     let result = await callAppend(false);
     if (result.needsConfirm && Array.isArray(result.warnings) && result.warnings.length > 0) {
-      const msg =
-        `⚠ CẢNH BÁO KHI THÊM ĐƯỜNG VÀO "${result.targetRouteName}":\n\n` +
-        result.warnings.map((w) => `• ${w}`).join('\n') +
-        '\n\nBạn vẫn muốn tiếp tục thêm vào khu vực phát này không?';
-      if (!window.confirm(msg)) {
-        setStatus(`Đã hủy thêm đường: ${result.warnings[0]}`, 'error');
+      const ok = await confirmNoti({
+        title: `Cảnh báo khi thêm vào "${result.targetRouteName}"`,
+        message: 'Phát hiện lưu ý sau — bạn vẫn muốn thêm vào khu vực phát này?',
+        items: result.warnings,
+        tone: 'warn',
+        confirmText: 'Đồng ý thêm',
+        cancelText: 'Không',
+      });
+      if (!ok) {
+        setStatus('Đã hủy thêm tuyến đường.', 'warn');
         return;
       }
       appendToRouteBtn.textContent = 'Đang gộp...';
@@ -564,11 +575,14 @@ saveMailRouteBtn.addEventListener('click', async () => {
     );
   }
   if (warnings.length > 0) {
-    const ok = window.confirm(
-      `⚠ CẢNH BÁO KHI TẠO KHU VỰC PHÁT "${name}":\n\n` +
-        warnings.map((w) => `• ${w}`).join('\n') +
-        '\n\nBạn vẫn muốn lưu khu vực phát này không?',
-    );
+    const ok = await confirmNoti({
+      title: `Cảnh báo khi tạo "${name}"`,
+      message: 'Phát hiện lưu ý sau — bạn vẫn muốn lưu khu vực phát này?',
+      items: warnings,
+      tone: 'warn',
+      confirmText: 'Đồng ý lưu',
+      cancelText: 'Không',
+    });
     if (!ok) return;
   }
 
@@ -755,9 +769,16 @@ editorDrawPolyBtn.addEventListener('click', () => {
 editorUndoBtn.addEventListener('click', () => polygonEditor?.undo());
 editorRedoBtn.addEventListener('click', () => polygonEditor?.redo());
 
-editorRevertBtn.addEventListener('click', () => {
+editorRevertBtn.addEventListener('click', async () => {
   if (!editingSavedGeojson || !polygonEditor) return;
-  if (!window.confirm('Xác nhận khôi phục ranh giới tuyến đường thư theo bản đang lưu trong DB?')) return;
+  const ok = await confirmNoti({
+    title: 'Khôi phục ranh giới theo DB',
+    message: 'Mọi thay đổi đỉnh chưa lưu của khu vực phát này sẽ bị hủy bỏ.',
+    tone: 'danger',
+    confirmText: 'Đồng ý Reset',
+    cancelText: 'Không',
+  });
+  if (!ok) return;
   polygonEditor.load(editingSavedGeojson, {
     color: editorRouteColorInput.value || editingRoute?.color || '#ea580c',
     neighbors: editingSavedNeighbors,

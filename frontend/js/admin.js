@@ -6,6 +6,7 @@ import {
   fetchAndSaveLamDongGeojson,
   importLamDongOpenData,
 } from './api.js';
+import { notify, confirmNoti } from './notify.js';
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -441,13 +442,14 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
   });
 
   syncWikiBtn.addEventListener('click', async () => {
-    if (
-      !window.confirm(
-        'Xác nhận đồng bộ lại danh sách 124 ĐVHC từ Wikipedia / table.html?\n(Các link GeoJSON bạn đã sửa sẽ vẫn được giữ nguyên.)',
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmNoti({
+      title: 'Đồng bộ danh sách 124 ĐVHC',
+      message: 'Xác nhận đồng bộ lại danh sách 124 ĐVHC từ Wikipedia / table.html?\nCác link GeoJSON bạn đã sửa vẫn được giữ nguyên.',
+      tone: 'info',
+      confirmText: 'Đồng ý',
+      cancelText: 'Không',
+    });
+    if (!ok) return;
     syncWikiBtn.disabled = true;
     showProgress('Đang đồng bộ danh sách 124 ĐVHC...', 40);
     try {
@@ -457,21 +459,25 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
       loadedOnce = true;
       renderTable();
       showProgress(`Đã đồng bộ ${res.count} ĐVHC từ ${res.usedSource}.`, 100);
+      notify(`Đã đồng bộ ${res.count} ĐVHC.`, { type: 'success' });
     } catch (err) {
       showProgress(`Lỗi đồng bộ danh sách: ${err.message}`, 0);
+      notify(`Lỗi đồng bộ danh sách: ${err.message}`, { type: 'error' });
     } finally {
       syncWikiBtn.disabled = false;
     }
   });
 
   importOpenDataBtn?.addEventListener('click', async () => {
-    if (
-      !window.confirm(
-        '⚠ CẢNH BÁO XÓA & RESET DỮ LIỆU!\n\nThao tác này sẽ XÓA TOÀN BỘ GeoJSON hiện có trong SQL Server (kể cả mọi ranh giới xã/huyện bạn đã chỉnh tay) và tạo mới lại bộ Open Data gồm 124 Xã/Phường 2025 + 30 Huyện/TP cũ.\n\nBạn có chắc chắn muốn tiếp tục không?',
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmNoti({
+      title: 'Cảnh báo xóa & tạo mới toàn bộ GeoJSON',
+      message:
+        'Thao tác này sẽ XÓA TOÀN BỘ GeoJSON hiện có trong SQL Server (kể cả mọi ranh giới xã/huyện bạn đã chỉnh tay) và tạo mới lại bộ Open Data gồm 124 Xã/Phường 2025 + 30 Huyện/TP cũ.',
+      tone: 'danger',
+      confirmText: 'Đồng ý xóa & tạo mới',
+      cancelText: 'Không',
+    });
+    if (!ok) return;
     importOpenDataBtn.disabled = true;
     showProgress('Đang xóa dữ liệu cũ và tạo mới 124 Xã + 30 Huyện cũ...', 45);
     try {
@@ -485,6 +491,7 @@ export function initAdminTab({ onDbUpdate, onOpenRegionOnMap, onOpenAllSavedOnMa
         `✓ Hoàn tất! Đã tạo mới ${res.wardsCount} Xã/Phường 2025 + ${res.oldDistrictsCount} Huyện/TP cũ vào SQL Server.`,
         100,
       );
+      notify(`Đã tạo mới ${res.wardsCount} Xã/Phường + ${res.oldDistrictsCount} Huyện cũ.`, { type: 'success' });
     } catch (err) {
       showProgress(`Lỗi tạo mới Open Data: ${err.message}`, 0);
     } finally {

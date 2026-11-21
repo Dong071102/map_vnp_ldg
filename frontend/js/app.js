@@ -10,6 +10,7 @@ import {
   serializeGeometryOneLine,
 } from './geometry.js';
 import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
+import { notify } from './notify.js';
 
 const MAX_PREVIEW_CHARS = 70000;
 const PALETTE = [
@@ -161,13 +162,9 @@ function slugify(str) {
 }
 
 function setStatus(message, type = 'success') {
-  if (!message) {
-    statusBanner.hidden = true;
-    return;
-  }
-  statusBanner.textContent = message;
-  statusBanner.className = `status-banner ${type}`;
-  statusBanner.hidden = false;
+  if (statusBanner) statusBanner.hidden = true;
+  if (!message) return;
+  notify(message, { type });
 }
 
 function switchMapSidebarTab(tab) {
