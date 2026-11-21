@@ -438,7 +438,6 @@ async function runMergeSelectedStreets() {
   if (selectedIds.size === 0) return;
   mergeRoutesBtn.disabled = true;
   mergeRoutesBtn.textContent = 'Đang gộp...';
-  setStatus(`Đang gộp ${selectedIds.size} đường bằng SQL Server...`, 'success');
 
   try {
     const res = await fetch('/api/streets/merge', {
@@ -937,13 +936,8 @@ function syncSelectionUI({ shouldFit = false } = {}) {
   renderStreetLabels();
   updateAddToExistingBox();
 
-  if (selectedIds.size > 0) {
-    const names = [...selectedIds]
-      .map((id) => bundle.streets.find((s) => s.id === id)?.name)
-      .filter(Boolean)
-      .join(', ');
-    setStatus(`Đang xem riêng ${selectedIds.size} tuyến đường: ${names}. Bấm "🔀 Gộp khu vực phát" hoặc "+ Thêm vào KV".`, 'success');
-    if (shouldFit) fitSelectedStreets();
+  if (selectedIds.size > 0 && shouldFit) {
+    fitSelectedStreets();
   }
 }
 
