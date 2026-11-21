@@ -195,6 +195,59 @@ export function buildExcelSafePolygonOneLine(serviceGeojson, maxChars = 32000) {
   return json;
 }
 
+export function getMissingExcelFields(office) {
+  const missing = [];
+  const area = office?.officeAreaM2;
+  if (area === null || area === undefined || area === '' || !Number.isFinite(Number(area)) || Number(area) <= 0) {
+    missing.push('Diện tích (m²)');
+  }
+  if (!String(office?.contactName || '').trim()) {
+    missing.push('Người liên hệ');
+  }
+  if (!String(office?.contactPhone || '').trim()) {
+    missing.push('Số điện thoại');
+  }
+  return missing;
+}
+
+export function validateBcvhForExcelExport(offices = []) {
+  if (!Array.isArray(offices) || offices.length === 0) {
+    return {
+      ok: false,
+      incomplete: [],
+      message: 'Chưa có Bưu cục Vận hành nào để xuất Excel.',
+    };
+  }
+  const incomplete = [];
+  for (const office of offices) {
+    const missing = getMissingExcelFields(office);
+    if (missing.length > 0) {
+      incomplete.push({ id: office?.id || null, name: office?.name || 'BCVH', missing });
+    }
+  }
+  if (incomplete.length === 0) {
+    return { ok: true, incomplete: [], message: '' };
+  }
+  if (offices.length === 1) {
+    const item = incomplete[0];
+    return {
+      ok: false,
+      incomplete,
+      message: `Không thể xuất Excel cho "${item.name}": thiếu ${item.missing.join(', ')}. Vui lòng bổ sung trong Quản trị (/admin#bcvh).`,
+    };
+  }
+  const sample = incomplete
+    .slice(0, 3)
+    .map((x) => x.name)
+    .join(', ');
+  const more = incomplete.length > 3 ? `, +${incomplete.length - 3} BCVH khác` : '';
+  return {
+    ok: false,
+    incomplete,
+    message: `Không thể xuất Excel: có ${incomplete.length}/${offices.length} BCVH chưa điền đủ Diện tích (m²), Người liên hệ, Số điện thoại (${sample}${more}).`,
+  };
+}
+
 export function bcvhOfficeToNodeRow(office) {
   const { nodeCode, deptCode } = parseBcvhCode(office.code);
   const adminPath = formatAdminPath(office.hostWardName);

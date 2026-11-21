@@ -106,6 +106,7 @@ const oldDistrictTableBody = $('oldDistrictTableBody');
 
 const bcvhStatTotal = $('bcvhStatTotal');
 const bcvhSearchInput = $('bcvhSearchInput');
+const exportAllBcvhAdminBtn = $('exportAllBcvhAdminBtn');
 const openNewBcvhBtn = $('openNewBcvhBtn');
 const bcvhTableBody = $('bcvhTableBody');
 const bcvhModal = $('bcvhModal');
@@ -856,10 +857,34 @@ oldDistrictSearchInput?.addEventListener('input', renderOldDistrictsTable);
 oldDistrictProvinceFilter?.addEventListener('change', renderOldDistrictsTable);
 
 // --- BCVH (Bưu cục Vận hành) Management ---
+function getMissingBcvhExcelFields(o) {
+  const missing = [];
+  if (o?.officeAreaM2 === null || o?.officeAreaM2 === undefined || !(Number(o.officeAreaM2) > 0)) {
+    missing.push('Diện tích (m²)');
+  }
+  if (!String(o?.contactName || '').trim()) missing.push('Người liên hệ');
+  if (!String(o?.contactPhone || '').trim()) missing.push('Số điện thoại');
+  return missing;
+}
+
+function updateAdminExportAllExcelState() {
+  if (!exportAllBcvhAdminBtn) return;
+  const incomplete = bcvhList.filter((o) => getMissingBcvhExcelFields(o).length > 0);
+  const blocked = bcvhList.length === 0 || incomplete.length > 0;
+  exportAllBcvhAdminBtn.classList.toggle('is-incomplete', blocked);
+  exportAllBcvhAdminBtn.setAttribute('aria-disabled', String(blocked));
+  exportAllBcvhAdminBtn.title = blocked
+    ? bcvhList.length === 0
+      ? 'Chưa có BCVH nào để xuất Excel'
+      : `Chưa thể xuất tất cả: còn ${incomplete.length} BCVH thiếu Diện tích (m²), Người liên hệ hoặc Số điện thoại`
+    : 'Xuất tất cả BCVH ra file Excel theo mẫu VNPost';
+}
+
 function renderBcvhTable() {
   if (!bcvhTableBody) return;
   const q = (bcvhSearchInput?.value || '').trim().toLowerCase();
   if (bcvhStatTotal) bcvhStatTotal.textContent = String(bcvhList.length);
+  updateAdminExportAllExcelState();
 
   const filtered = bcvhList.filter((o) => {
     if (!q) return true;
@@ -880,6 +905,7 @@ function renderBcvhTable() {
     const coordText =
       o.lat !== null && o.lng !== null ? `${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}` : 'Tự động theo tâm xã đặt';
     const hostText = o.hostWardName || (o.lat !== null ? 'Theo tọa độ thủ công' : '—');
+    const missingFields = getMissingBcvhExcelFields(o);
     const extraParts = [];
     if (o.officeAreaM2 !== null && o.officeAreaM2 !== undefined) {
       extraParts.push(`${Number(o.officeAreaM2).toLocaleString('vi-VN')} m²`);
@@ -897,6 +923,11 @@ function renderBcvhTable() {
         ? `<span class="bcvh-ward-chip">+${o.wardNames.length - 8} xã nữa</span>`
         : '';
 
+    const excelTitle =
+      missingFields.length > 0
+        ? `Chưa thể xuất Excel — thiếu: ${missingFields.join(', ')}`
+        : 'Xuất file Excel theo mẫu VNPost cho BCVH này';
+
     tr.innerHTML = `
       <td class="col-stt">${idx + 1}</td>
       <td class="col-name">
@@ -907,6 +938,7 @@ function renderBcvhTable() {
         </div>
         ${o.address ? `<div class="sub-metric bcvh-addr"></div>` : ''}
         ${extraLine ? `<div class="sub-metric bcvh-extra"></div>` : ''}
+        ${missingFields.length > 0 ? `<div class="sub-metric bcvh-missing-warn"></div>` : ''}
       </td>
       <td class="col-old-district">
         <div class="old-district-name bcvh-host"></div>
@@ -921,7 +953,7 @@ function renderBcvhTable() {
       </td>
       <td class="col-actions right-col">
         <div class="row-action-btns right-actions">
-          <a class="btn small" href="/api/bcvh/${o.id}/export-excel" title="Xuất file Excel theo mẫu VNPost cho BCVH này">📥 Excel</a>
+          <a class="btn small export-bcvh-excel-btn${missingFields.length > 0 ? ' is-incomplete' : ''}" href="/api/bcvh/${o.id}/export-excel" aria-disabled="${missingFields.length > 0}" title="${excelTitle}">📥 Excel</a>
           <button type="button" class="btn small primary edit-bcvh-btn">✏ Sửa</button>
           <button type="button" class="btn small danger-solid del-bcvh-btn" title="Xóa BCVH này">🗑</button>
         </div>
@@ -935,7 +967,21 @@ function renderBcvhTable() {
     if (addrEl) addrEl.textContent = o.address;
     const extraEl = tr.querySelector('.bcvh-extra');
     if (extraEl) extraEl.textContent = extraLine;
+    const missingEl = tr.querySelector('.bcvh-missing-warn');
+    if (missingEl) missingEl.textContent = `⚠ Thiếu để xuất Excel: ${missingFields.join(', ')}`;
     tr.querySelector('.bcvh-host').textContent = `🚚 ${hostText}`;
+
+    const excelLink = tr.querySelector('.export-bcvh-excel-btn');
+    excelLink.addEventListener('click', (e) => {
+      if (missingFields.length > 0) {
+        e.preventDefault();
+        setStatus(
+          `Chưa thể xuất Excel cho "${o.name}": vui lòng điền đủ ${missingFields.join(', ')}.`,
+          'error',
+        );
+        openBcvhModal(o);
+      }
+    });
 
     tr.querySelector('.edit-bcvh-btn').addEventListener('click', () => openBcvhModal(o));
     tr.querySelector('.del-bcvh-btn').addEventListener('click', async () => {
@@ -1141,6 +1187,26 @@ bcvhClearWardsBtn?.addEventListener('click', () => {
 });
 
 openNewBcvhBtn?.addEventListener('click', () => openBcvhModal(null));
+exportAllBcvhAdminBtn?.addEventListener('click', (e) => {
+  if (bcvhList.length === 0) {
+    e.preventDefault();
+    setStatus('Chưa có Bưu cục Vận hành nào để xuất Excel.', 'error');
+    return;
+  }
+  const incomplete = bcvhList.filter((o) => getMissingBcvhExcelFields(o).length > 0);
+  if (incomplete.length > 0) {
+    e.preventDefault();
+    const sample = incomplete
+      .slice(0, 3)
+      .map((x) => x.name)
+      .join(', ');
+    const more = incomplete.length > 3 ? `, +${incomplete.length - 3} BCVH khác` : '';
+    setStatus(
+      `Không thể xuất Excel tất cả: còn ${incomplete.length}/${bcvhList.length} BCVH thiếu Diện tích (m²), Người liên hệ hoặc Số điện thoại (${sample}${more}).`,
+      'error',
+    );
+  }
+});
 bcvhModalCloseBtn?.addEventListener('click', closeBcvhModal);
 bcvhCancelBtn?.addEventListener('click', closeBcvhModal);
 bcvhModal?.addEventListener('click', (e) => {

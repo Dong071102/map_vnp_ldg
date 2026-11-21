@@ -92,6 +92,7 @@ const statRegions = $('statRegions');
 
 const bcvhCount = $('bcvhCount');
 const clearBcvhFocusBtn = $('clearBcvhFocusBtn');
+const exportAllBcvhExcelBtn = $('exportAllBcvhExcelBtn');
 const bcvhListEmpty = $('bcvhListEmpty');
 const bcvhListEl = $('bcvhList');
 
@@ -758,11 +759,57 @@ function renderBcvhMarkers() {
   }
 }
 
+function getMissingBcvhExcelFields(office) {
+  const missing = [];
+  if (office?.officeAreaM2 === null || office?.officeAreaM2 === undefined || !(Number(office.officeAreaM2) > 0)) {
+    missing.push('Diện tích (m²)');
+  }
+  if (!String(office?.contactName || '').trim()) missing.push('Người liên hệ');
+  if (!String(office?.contactPhone || '').trim()) missing.push('Số điện thoại');
+  return missing;
+}
+
+function updateExportAllBcvhButton() {
+  if (!exportAllBcvhExcelBtn) return;
+  const incomplete = bcvhOffices.filter((o) => getMissingBcvhExcelFields(o).length > 0);
+  const blocked = bcvhOffices.length === 0 || incomplete.length > 0;
+  exportAllBcvhExcelBtn.classList.toggle('is-incomplete', blocked);
+  exportAllBcvhExcelBtn.setAttribute('aria-disabled', String(blocked));
+  exportAllBcvhExcelBtn.title = blocked
+    ? bcvhOffices.length === 0
+      ? 'Chưa có BCVH nào để xuất Excel'
+      : `Không thể xuất tất cả: còn ${incomplete.length} BCVH thiếu Diện tích (m²), Người liên hệ hoặc Số điện thoại`
+    : 'Xuất tất cả BCVH ra file Excel theo mẫu VNPost';
+}
+
+exportAllBcvhExcelBtn?.addEventListener('click', (e) => {
+  if (bcvhOffices.length === 0) {
+    e.preventDefault();
+    const msg = 'Chưa có Bưu cục Vận hành nào để xuất Excel.';
+    setStatus(msg, 'error');
+    showMapCopyToast(msg, true);
+    return;
+  }
+  const incomplete = bcvhOffices.filter((o) => getMissingBcvhExcelFields(o).length > 0);
+  if (incomplete.length > 0) {
+    e.preventDefault();
+    const sample = incomplete
+      .slice(0, 3)
+      .map((x) => x.name)
+      .join(', ');
+    const more = incomplete.length > 3 ? `, +${incomplete.length - 3} BCVH khác` : '';
+    const msg = `Không thể xuất Excel: còn ${incomplete.length}/${bcvhOffices.length} BCVH thiếu Diện tích (m²), Người liên hệ hoặc Số điện thoại (${sample}${more}).`;
+    setStatus(msg, 'error');
+    showMapCopyToast(msg, true);
+  }
+});
+
 function renderBcvhList() {
   if (!bcvhListEl || !bcvhCount || !bcvhListEmpty) return;
   bcvhCount.textContent = String(bcvhOffices.length);
   bcvhListEmpty.hidden = bcvhOffices.length > 0;
   if (clearBcvhFocusBtn) clearBcvhFocusBtn.hidden = activeBcvhId === null;
+  updateExportAllBcvhButton();
 
   bcvhListEl.innerHTML = '';
   const frag = document.createDocumentFragment();
@@ -777,6 +824,11 @@ function renderBcvhList() {
     const areaVal = office.computedAreaKm2 || office.totalAreaKm2 || 0;
     const areaSuffix = areaVal > 0 ? ` · ~${areaVal.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} km²` : '';
     const dotColor = getEffectiveBcvhColor(office);
+    const missingFields = getMissingBcvhExcelFields(office);
+    const excelBlocked = missingFields.length > 0;
+    const excelTitle = excelBlocked
+      ? `Không thể xuất Excel — thiếu: ${missingFields.join(', ')}. Vào Quản trị (/admin#bcvh) để bổ sung.`
+      : 'Xuất file Excel (.xlsx) theo mẫu VNPost cho BCVH này';
 
     item.innerHTML = `
       <div class="bcvh-item-main">
@@ -790,13 +842,19 @@ function renderBcvhList() {
         </div>
       </div>
       <div class="bcvh-item-actions">
-        <a class="btn small export-bcvh-excel-btn" href="/api/bcvh/${office.id}/export-excel" title="Xuất file Excel (.xlsx) theo mẫu VNPost cho BCVH này">Xuất Excel</a>
+        <a class="btn small export-bcvh-excel-btn${excelBlocked ? ' is-incomplete' : ''}" href="/api/bcvh/${office.id}/export-excel" aria-disabled="${excelBlocked}" title="${escapeHtml(excelTitle)}">Xuất Excel</a>
         <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
       </div>
     `;
     const exportExcelBtn = item.querySelector('.export-bcvh-excel-btn');
     exportExcelBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (excelBlocked) {
+        e.preventDefault();
+        const msg = `Chưa thể xuất Excel "${office.name}": thiếu ${missingFields.join(', ')}. Vào Quản trị → BCVH để nhập đủ.`;
+        setStatus(msg, 'error');
+        showMapCopyToast(msg, true);
+      }
     });
     const copyGeoBtn = item.querySelector('.copy-bcvh-geo-btn');
     copyGeoBtn.addEventListener('click', async (e) => {

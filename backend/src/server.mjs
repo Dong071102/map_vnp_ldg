@@ -46,7 +46,7 @@ import {
   fetchLamDongUnitsFromWikipedia,
 } from './lamdongParser.mjs';
 import { loadOpenDataBundle, normalizeAdminName } from './openDataImporter.mjs';
-import { buildBcvhWorkbookBuffer } from './bcvhExcel.mjs';
+import { buildBcvhWorkbookBuffer, validateBcvhForExcelExport } from './bcvhExcel.mjs';
 import { computeGeoStats } from '../../frontend/js/geometry.js';
 
 const PALETTE = [
@@ -367,6 +367,11 @@ export function createAppServer() {
       if (pathname === '/api/bcvh/export-excel' && req.method === 'GET') {
         try {
           const offices = await listBcvhOffices();
+          const check = validateBcvhForExcelExport(offices);
+          if (!check.ok) {
+            sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
+            return;
+          }
           const buf = buildBcvhWorkbookBuffer(offices);
           sendXlsxDownload(
             res,
@@ -386,6 +391,11 @@ export function createAppServer() {
           const office = await getBcvhOfficeById(bcvhExcelMatch[1]);
           if (!office) {
             sendJson(res, 404, { error: 'Không tìm thấy Bưu cục Vận hành.' });
+            return;
+          }
+          const check = validateBcvhForExcelExport([office]);
+          if (!check.ok) {
+            sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
             return;
           }
           const buf = buildBcvhWorkbookBuffer([office]);

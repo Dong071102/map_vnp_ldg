@@ -1901,6 +1901,25 @@ a.btn.export-bcvh-excel-btn:hover {
   border-color: #86efac;
 }
 
+a.btn.is-incomplete {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+a.btn.is-incomplete:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.bcvh-missing-warn {
+  color: #b91c1c !important;
+  font-weight: 500;
+}
+
 .bcvh-truck-marker {
   background: transparent;
   border: none;

@@ -218,7 +218,7 @@
           <span class="search-ico" aria-hidden="true">🔍</span>
           <input id="bcvhSearchInput" type="text" class="admin-search-clean" placeholder="Tìm tên BCVH, mã, xã phục vụ..." />
         </div>
-        <a class="btn small" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">📥 Xuất Excel tất cả</a>
+        <a id="exportAllBcvhAdminBtn" class="btn small" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">📥 Xuất Excel tất cả</a>
         <button type="button" id="openNewBcvhBtn" class="btn small primary">🚚 + Thêm Bưu cục Vận hành</button>
       </div>
 
@@ -297,16 +297,16 @@
           </div>
           <div class="bcvh-grid-3" style="margin-top: 8px;">
             <div class="form-field">
-              <label for="bcvhAreaM2Input">Diện tích (m²)</label>
-              <input id="bcvhAreaM2Input" type="number" step="any" min="0" placeholder="VD: 150" />
+              <label for="bcvhAreaM2Input">Diện tích (m²) *</label>
+              <input id="bcvhAreaM2Input" type="number" step="any" min="0.01" placeholder="VD: 150" required />
             </div>
             <div class="form-field">
-              <label for="bcvhContactNameInput">Người liên hệ</label>
-              <input id="bcvhContactNameInput" type="text" placeholder="VD: Nguyễn Văn A" />
+              <label for="bcvhContactNameInput">Người liên hệ *</label>
+              <input id="bcvhContactNameInput" type="text" placeholder="VD: Nguyễn Văn A" required />
             </div>
             <div class="form-field">
-              <label for="bcvhContactPhoneInput">Số điện thoại</label>
-              <input id="bcvhContactPhoneInput" type="tel" placeholder="VD: 0888139797" />
+              <label for="bcvhContactPhoneInput">Số điện thoại *</label>
+              <input id="bcvhContactPhoneInput" type="tel" placeholder="VD: 0888139797" required />
             </div>
           </div>
         </div>

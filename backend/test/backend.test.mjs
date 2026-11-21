@@ -9,6 +9,8 @@ import {
   parseBcvhCode,
   formatAdminPath,
   buildExcelSafePolygonOneLine,
+  getMissingExcelFields,
+  validateBcvhForExcelExport,
   bcvhOfficeToNodeRow,
   buildBcvhWorkbookBuffer,
 } from '../src/bcvhExcel.mjs';
@@ -208,4 +210,16 @@ test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () =
   ]);
   assert.ok(Buffer.isBuffer(buf) && buf.length > 500);
   assert.equal(buf.readUInt32LE(0), 0x04034b50, 'valid ZIP local header signature');
+
+  // Required-field gate for Excel export
+  assert.deepEqual(getMissingExcelFields({ name: 'BCVH A', officeAreaM2: null, contactName: '', contactPhone: '' }), [
+    'Diện tích (m²)',
+    'Người liên hệ',
+    'Số điện thoại',
+  ]);
+  assert.deepEqual(getMissingExcelFields({ name: 'BCVH A', officeAreaM2: 0, contactName: 'An', contactPhone: '09123' }), [
+    'Diện tích (m²)',
+  ]);
+  assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '' }]).ok, false);
+  assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '0912345678' }]).ok, true);
 });

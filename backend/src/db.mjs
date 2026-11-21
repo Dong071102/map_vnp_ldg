@@ -964,13 +964,20 @@ function validateBcvhInput(payload) {
   const contactName = String(payload.contactName || '').trim().slice(0, 255);
   const contactPhone = String(payload.contactPhone || '').trim().slice(0, 64);
 
-  let officeAreaM2 = null;
-  if (payload.officeAreaM2 !== '' && payload.officeAreaM2 != null) {
-    const n = Number(String(payload.officeAreaM2).replace(',', '.'));
-    if (!Number.isFinite(n) || n < 0) {
-      throw new Error('Diện tích (m²) không hợp lệ (phải là số >= 0).');
-    }
-    officeAreaM2 = Math.round(n * 100) / 100;
+  if (payload.officeAreaM2 === '' || payload.officeAreaM2 == null) {
+    throw new Error('Vui lòng nhập Diện tích (m²).');
+  }
+  const parsedArea = Number(String(payload.officeAreaM2).replace(',', '.'));
+  if (!Number.isFinite(parsedArea) || parsedArea <= 0) {
+    throw new Error('Diện tích (m²) không hợp lệ (phải là số lớn hơn 0).');
+  }
+  const officeAreaM2 = Math.round(parsedArea * 100) / 100;
+
+  if (!contactName) {
+    throw new Error('Vui lòng nhập Người liên hệ.');
+  }
+  if (!contactPhone) {
+    throw new Error('Vui lòng nhập Số điện thoại.');
   }
 
   const rawIds = Array.isArray(payload.wardUnitIds) ? payload.wardUnitIds : [];
