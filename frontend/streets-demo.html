@@ -116,6 +116,8 @@
     </div>
     <div class="topbar-right">
       <div id="statusBanner" class="status-banner" hidden></div>
+      <span id="adminBadge" class="admin-user-chip" hidden></span>
+      <a id="adminLoginLink" class="btn small" href="/admin" title="Đăng nhập tài khoản quản trị để tạo / sửa tuyến đường thư" hidden>🔐 Đăng nhập Admin</a>
       <a id="downloadWardStreetsLink" class="btn small" href="#" hidden>⬇ Vùng đường (.geojson)</a>
       <a class="btn small admin-nav-btn" href="/">← Bản đồ chính</a>
     </div>
@@ -199,10 +201,13 @@
               <div class="demo-stat-box"><span>GeoJSON (1 dòng)</span><strong id="statChars">—</strong></div>
             </div>
 
-            <div class="save-route-row">
+            <div id="saveRouteRow" class="save-route-row" hidden>
               <input id="mailRouteNameInput" type="text" placeholder="Nhập tên tuyến đường thư (vd: Tuyến 01 - Trung tâm)..." />
               <input id="mailRouteColorInput" type="color" value="#ea580c" title="Màu hiển thị tuyến đường thư" />
               <button type="button" id="saveMailRouteBtn" class="btn small success-btn">💾 Lưu</button>
+            </div>
+            <div id="adminOnlySaveHint" class="empty-hint" style="padding:6px 0 0;font-size:11.5px;" hidden>
+              🔐 Chỉ tài khoản <a href="/admin">Admin</a> mới được lưu hoặc chỉnh sửa tuyến đường thư.
             </div>
 
             <div class="merged-actions">

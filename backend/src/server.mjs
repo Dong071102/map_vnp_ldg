@@ -458,6 +458,7 @@ export function createAppServer() {
       }
 
       if (pathname === '/api/mail-routes' && req.method === 'POST') {
+        if (!requireAdmin(req, res)) return;
         try {
           const body = await readJsonBody(req);
           const fc = normalizeToFeatureCollection(body.geojson, { name: body.name || '' });
@@ -475,6 +476,7 @@ export function createAppServer() {
 
       const mailRouteIdMatch = pathname.match(/^\/api\/mail-routes\/(\d+)$/);
       if (mailRouteIdMatch && req.method === 'PUT') {
+        if (!requireAdmin(req, res)) return;
         try {
           const routeId = Number(mailRouteIdMatch[1]);
           const body = await readJsonBody(req);
@@ -511,6 +513,7 @@ export function createAppServer() {
       }
 
       if (mailRouteIdMatch && req.method === 'DELETE') {
+        if (!requireAdmin(req, res)) return;
         try {
           const deleted = await deleteMailRoute(mailRouteIdMatch[1]);
           sendJson(res, deleted ? 200 : 404, { deleted });

@@ -4,6 +4,8 @@ import { serializeGeometryOneLine } from './geometry.js';
 const $ = (id) => document.getElementById(id);
 
 const statusBanner = $('statusBanner');
+const adminBadge = $('adminBadge');
+const adminLoginLink = $('adminLoginLink');
 const downloadWardStreetsLink = $('downloadWardStreetsLink');
 const fitWardBtn = $('fitWardBtn');
 const toggleLabelsBtn = $('toggleLabelsBtn');
@@ -31,6 +33,8 @@ const statArea = $('statArea');
 const statLength = $('statLength');
 const statParts = $('statParts');
 const statChars = $('statChars');
+const saveRouteRow = $('saveRouteRow');
+const adminOnlySaveHint = $('adminOnlySaveHint');
 const mailRouteNameInput = $('mailRouteNameInput');
 const mailRouteColorInput = $('mailRouteColorInput');
 const saveMailRouteBtn = $('saveMailRouteBtn');
@@ -102,6 +106,8 @@ const savedRouteLayerById = new Map();
 let latestMerged = null;
 let showStreetLabels = true;
 let loadSeq = 0;
+let isAdmin = false;
+let adminUsername = null;
 
 // Editor state
 let editorMap = null;
@@ -230,14 +236,15 @@ function renderSavedRoutesOnMap() {
       },
       onEachFeature: (_f, lyr) => {
         const streetsLine = r.streetNames?.length ? `<br/>Đường: ${r.streetNames.slice(0, 6).join(', ')}${r.streetNames.length > 6 ? '...' : ''}` : '';
+        const editHint = isAdmin ? '<br/><em>Bấm để chọn · Double-click để sửa đỉnh</em>' : '<br/><em>Bấm để xem</em>';
         lyr.bindTooltip(
-          `<strong>📮 ${r.name}</strong><br/>Diện tích: ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km² · ${r.points} đỉnh${streetsLine}<br/><em>Bấm để chọn · Double-click để sửa đỉnh</em>`,
+          `<strong>📮 ${r.name}</strong><br/>Diện tích: ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km² · ${r.points} đỉnh${streetsLine}${editHint}`,
           { sticky: true, direction: 'top', opacity: 0.96 },
         );
         lyr.on('click', () => focusSavedRoute(r.id));
         lyr.on('dblclick', (e) => {
           L.DomEvent.stop(e);
-          openRouteEditorModal(r);
+          if (isAdmin) openRouteEditorModal(r);
         });
       },
     }).addTo(savedRoutesGroup);
@@ -277,18 +284,21 @@ function renderSavedRoutesList() {
         <div class="saved-route-sub">${streetSummary} · ${r.areaKm2.toLocaleString('vi-VN', { maximumFractionDigits: 3 })} km²${modTag}</div>
       </div>
       <div class="saved-route-btns">
-        <button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON tuyến đường thư này">✏ Sửa</button>
+        ${isAdmin ? '<button type="button" class="btn small primary edit-route-btn" title="Chỉnh sửa đỉnh GeoJSON tuyến đường thư này">✏ Sửa</button>' : ''}
         <button type="button" class="btn small copy-route-btn" title="Copy GeoJSON 1 dòng để dán Excel">Copy</button>
-        <button type="button" class="btn small danger-solid del-route-btn" title="Xóa tuyến đường thư này">🗑</button>
+        ${isAdmin ? '<button type="button" class="btn small danger-solid del-route-btn" title="Xóa tuyến đường thư này">🗑</button>' : ''}
       </div>
     `;
     item.querySelector('.saved-route-name').textContent = r.name;
 
     item.addEventListener('click', () => focusSavedRoute(r.id));
-    item.querySelector('.edit-route-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openRouteEditorModal(r);
-    });
+    const editBtn = item.querySelector('.edit-route-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openRouteEditorModal(r);
+      });
+    }
     const copyBtn = item.querySelector('.copy-route-btn');
     copyBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -299,21 +309,24 @@ function renderSavedRoutesList() {
       setStatus(`Đã copy GeoJSON 1 dòng "${r.name}" (${text.length.toLocaleString('vi-VN')} ký tự).`, 'success');
       setTimeout(() => (copyBtn.textContent = 'Copy'), 1400);
     });
-    item.querySelector('.del-route-btn').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!window.confirm(`Xác nhận xóa tuyến đường thư "${r.name}"?`)) return;
-      try {
-        const res = await fetch(`/api/mail-routes/${r.id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error((await res.json()).error || 'Lỗi xóa');
-        savedRoutes = savedRoutes.filter((x) => x.id !== r.id);
-        if (activeSavedRouteId === r.id) activeSavedRouteId = null;
-        renderSavedRoutesList();
-        renderSavedRoutesOnMap();
-        setStatus(`Đã xóa tuyến đường thư "${r.name}".`, 'success');
-      } catch (err) {
-        setStatus(`Lỗi xóa: ${err.message}`, 'error');
-      }
-    });
+    const delBtn = item.querySelector('.del-route-btn');
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!window.confirm(`Xác nhận xóa tuyến đường thư "${r.name}"?`)) return;
+        try {
+          const res = await fetch(`/api/mail-routes/${r.id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error((await res.json()).error || 'Lỗi xóa');
+          savedRoutes = savedRoutes.filter((x) => x.id !== r.id);
+          if (activeSavedRouteId === r.id) activeSavedRouteId = null;
+          renderSavedRoutesList();
+          renderSavedRoutesOnMap();
+          setStatus(`Đã xóa tuyến đường thư "${r.name}".`, 'success');
+        } catch (err) {
+          setStatus(`Lỗi xóa: ${err.message}`, 'error');
+        }
+      });
+    }
     frag.appendChild(item);
   }
   savedRoutesListEl.appendChild(frag);
@@ -538,6 +551,10 @@ function ensureEditorMap() {
 }
 
 function openRouteEditorModal(route) {
+  if (!isAdmin) {
+    setStatus('Chỉ tài khoản Admin mới được chỉnh sửa tuyến đường thư.', 'error');
+    return;
+  }
   editingRoute = route;
   editingSavedGeojson = JSON.parse(JSON.stringify(route.geojson));
   editingSavedNeighbors = savedRoutes
@@ -980,8 +997,31 @@ downloadMergedBtn.addEventListener('click', () => {
   );
 });
 
+function applyAdminPermissionsUI() {
+  if (adminBadge) {
+    adminBadge.textContent = adminUsername ? `👤 ${adminUsername}` : '';
+    adminBadge.hidden = !isAdmin;
+  }
+  if (adminLoginLink) adminLoginLink.hidden = isAdmin;
+  if (saveRouteRow) saveRouteRow.hidden = !isAdmin;
+  if (adminOnlySaveHint) adminOnlySaveHint.hidden = isAdmin;
+  if (savedRoutesEmpty && !isAdmin) {
+    savedRoutesEmpty.textContent = 'Chưa có tuyến đường thư nào trong xã/phường này.';
+  }
+}
+
 async function init() {
-  const res = await fetch('/api/streets/wards');
+  const [authRes, res] = await Promise.all([
+    fetch('/api/auth/me').catch(() => null),
+    fetch('/api/streets/wards'),
+  ]);
+  if (authRes?.ok) {
+    const auth = await authRes.json().catch(() => ({}));
+    isAdmin = Boolean(auth.authenticated);
+    adminUsername = auth.username || null;
+  }
+  applyAdminPermissionsUI();
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Không tải được danh sách xã/phường');
   allWardSummaries = data.wards || [];
