@@ -37,6 +37,9 @@ import {
   createBcvhOffice,
   updateBcvhOffice,
   deleteBcvhOffice,
+  listWardStreetSummaries,
+  getWardStreetsBundle,
+  mergeWardStreetsByIds,
   closeDb,
 } from './db.mjs';
 import { extractRegion, normalizeToFeatureCollection, hasUsableGeometry } from './wikiExtractor.mjs';
@@ -149,6 +152,9 @@ async function serveStatic(res, pathname) {
   let relPath = pathname.replace(/^\/+/, '');
   if (pathname === '/') relPath = 'index.html';
   else if (pathname === '/admin' || pathname === '/admin/') relPath = 'admin.html';
+  else if (pathname === '/streets' || pathname === '/streets/' || pathname === '/streets-demo' || pathname === '/streets-demo/') {
+    relPath = 'streets-demo.html';
+  }
   const fullPath = path.resolve(FRONTEND_DIR, relPath);
 
   if (fullPath !== FRONTEND_DIR && !fullPath.startsWith(FRONTEND_DIR + path.sep)) {
@@ -350,6 +356,86 @@ export function createAppServer() {
           sendJson(res, 200, { regions, db: getDbStatus() });
         } catch (err) {
           sendJson(res, 503, { error: err.message, db: getDbStatus() });
+        }
+        return;
+      }
+
+      // --- Lam Dong 124-Ward Streets & Delivery Route Merge Endpoints ---
+      if (pathname === '/api/streets/wards' && req.method === 'GET') {
+        try {
+          const wards = await listWardStreetSummaries();
+          sendJson(res, 200, { wards });
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      if (pathname === '/api/streets' && req.method === 'GET') {
+        try {
+          const wardUnitId = Number(reqUrl.searchParams.get('wardUnitId'));
+          if (!Number.isInteger(wardUnitId) || wardUnitId <= 0) {
+            sendJson(res, 400, { error: 'Thiếu tham số wardUnitId hợp lệ.' });
+            return;
+          }
+          const bundle = await getWardStreetsBundle(wardUnitId);
+          if (!bundle) {
+            sendJson(res, 404, { error: 'Không tìm thấy xã/phường này.' });
+            return;
+          }
+          sendJson(res, 200, bundle);
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      if (pathname === '/api/streets/geojson' && req.method === 'GET') {
+        try {
+          const wardUnitId = Number(reqUrl.searchParams.get('wardUnitId'));
+          const bundle = await getWardStreetsBundle(wardUnitId);
+          if (!bundle) {
+            sendJson(res, 404, { error: 'Không tìm thấy xã/phường này.' });
+            return;
+          }
+          const fc = {
+            type: 'FeatureCollection',
+            features: bundle.streets.map((s) => ({
+              type: 'Feature',
+              properties: {
+                id: s.id,
+                name: s.name,
+                highway: s.highway,
+                length_m: s.lengthM,
+                area_km2: s.areaKm2,
+                ward_name: bundle.ward.name,
+              },
+              geometry: s.zoneGeojson,
+            })),
+          };
+          const ascii = toSafeSlug(bundle.ward.name, `ward_${wardUnitId}`);
+          res.writeHead(200, {
+            'Content-Type': 'application/geo+json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="duong_${ascii}.geojson"`,
+          });
+          res.end(JSON.stringify(fc));
+        } catch (err) {
+          sendJson(res, 503, { error: err.message });
+        }
+        return;
+      }
+
+      if (pathname === '/api/streets/merge' && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const merged = await mergeWardStreetsByIds(Array.isArray(body.streetIds) ? body.streetIds : []);
+          if (!merged) {
+            sendJson(res, 400, { error: 'Vui lòng chọn ít nhất 1 tuyến đường hợp lệ.' });
+            return;
+          }
+          sendJson(res, 200, merged);
+        } catch (err) {
+          sendJson(res, err.statusCode || 500, { error: err.message });
         }
         return;
       }

@@ -314,6 +314,26 @@ export async function initDb() {
       BEGIN
         ALTER TABLE dbo.bcvh_offices ADD contact_phone NVARCHAR(64) NOT NULL CONSTRAINT DF_bcvh_contact_phone DEFAULT N'';
       END
+
+      IF OBJECT_ID(N'dbo.ward_streets', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.ward_streets (
+          id           INT IDENTITY(1,1) PRIMARY KEY,
+          ward_unit_id INT NOT NULL REFERENCES dbo.lamdong_admin_units(id) ON DELETE CASCADE,
+          ward_code    NVARCHAR(32) NOT NULL DEFAULT N'',
+          ward_name    NVARCHAR(255) NOT NULL,
+          street_key   NVARCHAR(255) NOT NULL,
+          street_name  NVARCHAR(255) NOT NULL,
+          highway      NVARCHAR(32) NOT NULL DEFAULT N'',
+          length_m     INT NOT NULL DEFAULT 0,
+          area_km2     FLOAT NOT NULL DEFAULT 0,
+          line_geojson NVARCHAR(MAX) NOT NULL,
+          zone_geojson NVARCHAR(MAX) NOT NULL,
+          zone_geom    GEOMETRY NULL,
+          updated_at   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+        );
+        CREATE INDEX IX_ward_streets_ward ON dbo.ward_streets(ward_unit_id);
+      END
     `);
 
     dbState = {
@@ -1475,6 +1495,176 @@ export async function deleteBcvhOffice(id) {
   const p = await getReadyPool();
   const res = await p.request().input('id', sql.Int, numericId).query('DELETE FROM dbo.bcvh_offices WHERE id = @id');
   return (res.rowsAffected?.[0] || 0) > 0;
+}
+
+export async function listWardStreetSummaries() {
+  const p = await getReadyPool();
+  const res = await p.request().query(`
+    SELECT u.id AS wardUnitId,
+           u.stt,
+           u.name AS wardName,
+           u.unit_type AS unitType,
+           u.old_district AS oldDistrict,
+           u.area_official_km2 AS areaOfficialKm2,
+           COUNT(s.id) AS streetCount,
+           ISNULL(SUM(s.length_m), 0) AS totalLengthM
+    FROM dbo.lamdong_admin_units u
+    LEFT JOIN dbo.ward_streets s ON s.ward_unit_id = u.id
+    GROUP BY u.id, u.stt, u.name, u.unit_type, u.old_district, u.area_official_km2
+    ORDER BY u.stt ASC
+  `);
+  return res.recordset.map((r) => ({
+    wardUnitId: r.wardUnitId,
+    stt: r.stt,
+    wardName: r.wardName,
+    unitType: r.unitType,
+    oldDistrict: r.oldDistrict || '',
+    areaOfficialKm2: Number(r.areaOfficialKm2) || 0,
+    streetCount: Number(r.streetCount) || 0,
+    totalLengthM: Number(r.totalLengthM) || 0,
+  }));
+}
+
+export async function getWardStreetsBundle(wardUnitId) {
+  const numericId = Number(wardUnitId);
+  if (!Number.isInteger(numericId) || numericId <= 0) return null;
+  const p = await getReadyPool();
+  const [wardRes, streetsRes] = await Promise.all([
+    p
+      .request()
+      .input('id', sql.Int, numericId)
+      .query(`
+        SELECT u.id, u.stt, u.name, u.old_district, u.area_official_km2, r.area_km2, r.geojson
+        FROM dbo.lamdong_admin_units u
+        LEFT JOIN dbo.admin_regions r ON r.id = u.region_id
+        WHERE u.id = @id
+      `),
+    p
+      .request()
+      .input('id', sql.Int, numericId)
+      .query(`
+        SELECT id, street_name, highway, length_m, area_km2, line_geojson, zone_geojson
+        FROM dbo.ward_streets
+        WHERE ward_unit_id = @id
+        ORDER BY street_name ASC
+      `),
+  ]);
+
+  const w = wardRes.recordset[0];
+  if (!w) return null;
+  let wardGeojson = null;
+  try {
+    wardGeojson = w.geojson ? JSON.parse(w.geojson) : null;
+  } catch {
+    wardGeojson = null;
+  }
+
+  const streets = streetsRes.recordset.map((s) => ({
+    id: s.id,
+    name: s.street_name,
+    highway: s.highway || '',
+    lengthM: Number(s.length_m) || 0,
+    areaKm2: Number(s.area_km2) || 0,
+    lineGeojson: JSON.parse(s.line_geojson),
+    zoneGeojson: JSON.parse(s.zone_geojson),
+  }));
+
+  return {
+    ward: {
+      id: w.id,
+      stt: w.stt,
+      name: w.name,
+      oldDistrict: w.old_district || '',
+      areaKm2: Math.round((Number(w.area_km2) || Number(w.area_official_km2) || 0) * 100) / 100,
+      geojson: wardGeojson,
+    },
+    streetCount: streets.length,
+    streets,
+  };
+}
+
+export async function mergeWardStreetsByIds(streetIds = []) {
+  const cleanIds = [...new Set(streetIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (cleanIds.length === 0) return null;
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('idsJson', sql.NVarChar(sql.MAX), JSON.stringify(cleanIds))
+    .query(`
+      WITH picked AS (
+        SELECT s.id, s.street_name, s.length_m, s.zone_geom
+        FROM dbo.ward_streets s
+        INNER JOIN OPENJSON(@idsJson) j ON s.id = TRY_CAST(j.value AS INT)
+      )
+      SELECT
+        (SELECT id, street_name AS name, length_m AS lengthM FROM picked ORDER BY street_name ASC FOR JSON PATH) AS metaJson,
+        (
+          SELECT geometry::UnionAggregate(zone_geom.MakeValid().STBuffer(0.000008))
+            .STBuffer(-0.000008)
+            .Reduce(0.000005)
+            .MakeValid()
+            .STAsText()
+          FROM picked
+          WHERE zone_geom IS NOT NULL
+        ) AS wkt;
+    `);
+
+  const row = res.recordset[0];
+  if (!row?.wkt) return null;
+  const geom = wktToGeoJsonGeometry(row.wkt);
+  if (!geom) return null;
+
+  const metaList = row.metaJson ? JSON.parse(row.metaJson) : [];
+  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geom }] };
+  const stats = computeGeoStats(fc, null);
+  const polygonParts = geom.type === 'MultiPolygon' ? geom.coordinates.length : 1;
+
+  return {
+    streetIds: metaList.map((m) => m.id),
+    streetNames: metaList.map((m) => m.name),
+    totalLengthM: metaList.reduce((acc, m) => acc + (Number(m.lengthM) || 0), 0),
+    geometry: geom,
+    areaKm2: Math.round(stats.areaKm2 * 10000) / 10000,
+    points: stats.points,
+    polygonParts,
+    oneLineGeojson: JSON.stringify(geom),
+  };
+}
+
+export async function unionGeoJsonGeometries(geometries = []) {
+  const wkts = geometries
+    .map((g) => geojsonToMultiPolygonWkt(g))
+    .filter(Boolean);
+  if (wkts.length === 0) return null;
+
+  const p = await getReadyPool();
+  const res = await p
+    .request()
+    .input('wktsJson', sql.NVarChar(sql.MAX), JSON.stringify(wkts))
+    .query(`
+      DECLARE @u GEOMETRY;
+      SELECT @u = geometry::UnionAggregate(geometry::STGeomFromText(value, 4326).MakeValid().STBuffer(0.000008))
+      FROM OPENJSON(@wktsJson);
+      IF @u IS NOT NULL
+      BEGIN
+        SET @u = @u.STBuffer(-0.000008).Reduce(0.000005).MakeValid();
+      END
+      SELECT CASE WHEN @u IS NOT NULL AND @u.STIsEmpty() = 0 THEN @u.STAsText() ELSE NULL END AS wkt;
+    `);
+  const mergedWkt = res.recordset[0]?.wkt;
+  if (!mergedWkt) return null;
+  const geom = wktToGeoJsonGeometry(mergedWkt);
+  if (!geom) return null;
+
+  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geom }] };
+  const stats = computeGeoStats(fc, null);
+  const polygonParts = geom.type === 'MultiPolygon' ? geom.coordinates.length : 1;
+  return {
+    geometry: geom,
+    areaKm2: Math.round(stats.areaKm2 * 10000) / 10000,
+    points: stats.points,
+    polygonParts,
+  };
 }
 
 export async function closeDb() {

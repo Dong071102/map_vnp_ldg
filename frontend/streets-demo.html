@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tuyến đường &amp; Khu vực phát Bưu tá — 124 Xã/Phường Lâm Đồng 2025</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .ward-picker-bar {
+      display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+      border-bottom: 1px solid var(--border); background: #f8fafc;
+    }
+    .ward-picker-bar select {
+      flex: 1; height: 32px; padding: 0 8px; border: 1px solid #cbd5e1; border-radius: 7px;
+      font-size: 12.5px; font-weight: 600; background: #ffffff; color: var(--text);
+    }
+    .demo-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .demo-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;
+    }
+    .demo-chip button {
+      border: none; background: transparent; cursor: pointer; color: #1e40af; font-weight: 700; padding: 0 2px;
+    }
+    .demo-stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px;
+    }
+    .demo-stat-box {
+      padding: 6px 8px; border-radius: 8px; background: #f8fafc; border: 1px solid var(--border);
+    }
+    .demo-stat-box span { display: block; font-size: 11px; color: var(--text-muted); }
+    .demo-stat-box strong { font-size: 13px; color: var(--text); }
+    .street-list {
+      max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px;
+    }
+    .street-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); cursor: pointer; background: #fff;
+      font-size: 12.5px;
+    }
+    .street-row:hover { background: #f8fafc; border-color: #94a3b8; }
+    .street-row.selected { background: #eff6ff; border-color: #3b82f6; }
+    .street-row-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .street-row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .street-row-meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .merged-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .merged-box {
+      margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+    }
+    .street-label-pill {
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+      white-space: nowrap;
+    }
+    .street-label-pill::before { display: none; }
+    .tool-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">🛣</div>
+      <div>
+        <h1>Tuyến đường &amp; Khu vực phát Bưu tá — Lâm Đồng 2025</h1>
+        <p>Chọn xã/phường → chọn các tuyến đường để xem riêng lẻ · Bấm "Gộp tuyến phát" để hòa thành 1 Polygon tổng</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div id="statusBanner" class="status-banner" hidden></div>
+      <a id="downloadWardStreetsLink" class="btn small" href="#" hidden>⬇ Tải vùng đường (.geojson)</a>
+      <a class="btn small admin-nav-btn" href="/">← Bản đồ chính</a>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="map-panel">
+      <div id="map"></div>
+      <div class="map-toolbar">
+        <div class="toolbar-group">
+          <button type="button" id="fitWardBtn" class="tool-btn">Căn giữa xã/phường</button>
+          <button type="button" id="toggleLabelsBtn" class="tool-btn active" title="Bật / tắt nhãn tên các tuyến đường trên bản đồ">🏷 Đang hiện tên đường</button>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggleZones" checked />
+            <span>Ô vùng đường (Voronoi)</span>
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggleLines" checked />
+            <span>Tim đường (OSM)</span>
+          </label>
+        </div>
+        <div class="toolbar-group">
+          <span class="stat-pill" id="wardStatsPill">Đang tải danh sách 124 xã/phường...</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector-panel">
+      <div class="card">
+        <div class="card-header">
+          <h2>📍 Chọn Xã / Phường (<span id="totalWardsCount">124</span>)</h2>
+          <span class="stat-pill" id="totalStreetsPill" style="font-size:11px;">0 tuyến</span>
+        </div>
+        <div class="ward-picker-bar">
+          <input id="wardFilterInput" type="text" class="region-search-input" style="max-width: 140px;" placeholder="Lọc xã..." />
+          <select id="wardSelect"></select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="flex-wrap: wrap; gap: 6px;">
+          <h2>🛣 Đang chọn (<span id="selectedCount">0</span>)</h2>
+          <div class="header-actions">
+            <button type="button" id="clearSelectedBtn" class="btn small">Bỏ chọn</button>
+          </div>
+        </div>
+        <div style="padding: 10px 12px;">
+          <div id="selectedHint" class="empty-hint" style="padding: 4px 0;">
+            Bấm chọn tuyến đường trên bản đồ hoặc danh sách bên dưới để <strong>xem riêng từng đường</strong>. Bấm <strong>Gộp tuyến phát</strong> khi muốn hòa thành 1 Polygon tổng.
+          </div>
+          <div id="selectedChips" class="demo-chips"></div>
+
+          <div class="merged-actions">
+            <button type="button" id="mergeRoutesBtn" class="btn small primary" disabled>🔀 Gộp tuyến phát</button>
+            <button type="button" id="unmergeBtn" class="btn small" hidden>✕ Tách xem riêng</button>
+          </div>
+
+          <div id="mergedBox" class="merged-box" hidden>
+            <div style="font-size: 12px; font-weight: 700; color: #c2410c;">📦 Kết quả khu vực phát đã gộp</div>
+            <div id="mergedStats" class="demo-stats-grid">
+              <div class="demo-stat-box"><span>Diện tích khu vực gộp</span><strong id="statArea">—</strong></div>
+              <div class="demo-stat-box"><span>Tổng chiều dài đường</span><strong id="statLength">—</strong></div>
+              <div class="demo-stat-box"><span>Cấu trúc hình học</span><strong id="statParts">—</strong></div>
+              <div class="demo-stat-box"><span>Độ dài GeoJSON (1 dòng)</span><strong id="statChars">—</strong></div>
+            </div>
+            <div class="merged-actions">
+              <button type="button" id="copyMergedBtn" class="btn small primary">📋 Copy GeoJSON (1 dòng)</button>
+              <button type="button" id="downloadMergedBtn" class="btn small">⬇ Tải .geojson vùng gộp</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Danh sách tuyến đường (<span id="streetCount">0</span>)</h2>
+        </div>
+        <div class="region-filter-bar">
+          <input id="streetSearch" type="text" class="region-search-input" placeholder="Tìm tên đường trong xã/phường đang xem..." />
+        </div>
+        <div id="streetList" class="street-list"></div>
+      </div>
+    </aside>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script type="module" src="/js/streetsDemo.js"></script>
+</body>
+</html>
