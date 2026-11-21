@@ -109,7 +109,7 @@ export async function loadOpenDataBundle() {
         ).toLocaleString('vi-VN')}`,
         qid: `VN-${w.id}`,
         osmRelationIds: [],
-        source: 'OpenData VN-2025 (MIT)',
+        source: 'vn-provinces v5.2.0 (sapnhap.bando)',
         wikipediaUrl: null,
         wikidataUrl: null,
         directGeoshapeUrl: mapUrl,
