@@ -838,19 +838,21 @@ function renderBcvhList() {
       : 'Xuất file Excel (.xlsx) theo mẫu VNPost cho BCVH này';
 
     item.innerHTML = `
-      <div class="bcvh-item-main">
+      <div class="bcvh-item-head">
         <div class="bcvh-item-title">
           <span class="color-dot" style="background:${escapeHtml(dotColor)}"></span>
-          <span>🚚 ${escapeHtml(office.name)}</span>
-          ${office.code ? `<span class="tag-layer-old">${escapeHtml(office.code)}</span>` : ''}
+          <span class="bcvh-item-name">${escapeHtml(office.name)}</span>
         </div>
+        ${office.code ? `<span class="tag-layer-old bcvh-code-tag">${escapeHtml(office.code)}</span>` : ''}
+      </div>
+      <div class="bcvh-item-foot">
         <div class="bcvh-item-meta">
           ${escapeHtml(hostInfo)} · <strong>${(office.wardUnitIds || []).length} xã</strong>${escapeHtml(areaSuffix)}
         </div>
-      </div>
-      <div class="bcvh-item-actions">
-        <a class="btn small export-bcvh-excel-btn${excelBlocked ? ' is-incomplete' : ''}" href="${appendShrinkParam(`/api/bcvh/${office.id}/export-excel`)}" aria-disabled="${excelBlocked}" title="${escapeHtml(excelTitle)}">Xuất Excel</a>
-        <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
+        <div class="bcvh-item-actions">
+          <a class="btn small export-bcvh-excel-btn${excelBlocked ? ' is-incomplete' : ''}" href="${appendShrinkParam(`/api/bcvh/${office.id}/export-excel`)}" aria-disabled="${excelBlocked}" title="${escapeHtml(excelTitle)}">Excel</a>
+          <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
+        </div>
       </div>
     `;
     const exportExcelBtn = item.querySelector('.export-bcvh-excel-btn');
@@ -1169,6 +1171,14 @@ showOldDistrictsLayerToggle.addEventListener('change', () => {
   renderRegionList();
   updateJsonOutput();
 });
+function syncBcvhLabelDensity() {
+  const mapEl = $('map');
+  if (!mapEl) return;
+  mapEl.classList.toggle('bcvh-labels-compact', map.getZoom() < 10);
+}
+map.on('zoomend', syncBcvhLabelDensity);
+syncBcvhLabelDensity();
+
 showBcvhLayerToggle?.addEventListener('change', () => {
   renderBcvhMarkers();
 });

@@ -215,7 +215,9 @@ function renderStreetLabels() {
       ? bundle.streets.filter((s) => selectedIds.has(s.id))
       : zoom >= 15
         ? bundle.streets
-        : bundle.streets.filter((s) => ['motorway', 'trunk', 'primary', 'secondary'].includes(s.highway));
+        : zoom >= 14
+          ? bundle.streets.filter((s) => ['motorway', 'trunk', 'primary', 'secondary'].includes(s.highway))
+          : [];
 
   for (const st of targets) {
     const pt = getStreetLabelPoint(st);

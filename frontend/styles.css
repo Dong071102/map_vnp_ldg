@@ -321,14 +321,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 7px 12px;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
-.toolbar-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.map-toolbar .stat-pill {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tool-btn {
   height: 28px;
   padding: 0 10px;
@@ -1815,10 +1829,9 @@ a.admin-nav-btn {
 
 .bcvh-item {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: #ffffff;
@@ -1837,25 +1850,47 @@ a.admin-nav-btn {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
 }
 
-.bcvh-item-main {
-  min-width: 0;
-  flex: 1;
+.bcvh-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .bcvh-item-title {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   font-size: 13px;
   font-weight: 700;
   color: var(--text);
 }
 
+.bcvh-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcvh-code-tag {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.bcvh-item-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .bcvh-item-meta {
-  margin-top: 2px;
+  min-width: 0;
+  flex: 1;
   font-size: 11.5px;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .bcvh-item-actions {
@@ -1945,6 +1980,11 @@ a.btn.is-incomplete:hover {
   white-space: nowrap;
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* Hide dense truck labels at province-wide zoom unless active or hovered */
+.bcvh-labels-compact .bcvh-truck-wrap:not(.active):not(:hover) .bcvh-truck-label {
+  display: none;
 }
 
 .bcvh-wards-chips {
@@ -2583,11 +2623,11 @@ a.btn.is-incomplete:hover {
 /* --- Unified Notification Toasts & Confirmation Cards --- */
 .app-noti-stack {
   position: fixed;
-  top: 60px;
+  bottom: 18px;
   right: 16px;
   z-index: 9999;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 8px;
   width: min(370px, calc(100vw - 24px));
   pointer-events: none;
@@ -2727,6 +2767,7 @@ a.btn.is-incomplete:hover {
 /* --- RBAC Users & Permissions Tab --- */
 .modal-dialog-user {
   width: min(640px, 95vw);
+  height: auto;
   max-height: 90vh;
   display: flex;
   flex-direction: column;

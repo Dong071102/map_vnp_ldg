@@ -10,7 +10,7 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20261123" />
 </head>
 <body>
   <header class="topbar">
@@ -50,7 +50,7 @@
           </label>
           <label class="checkbox-inline">
             <input type="checkbox" id="toggleZones" checked />
-            <span>Ô vùng đường</span>
+            <span>Ô đường</span>
           </label>
           <label class="checkbox-inline">
             <input type="checkbox" id="toggleLines" checked />
@@ -59,11 +59,11 @@
         </div>
         <div class="toolbar-group">
           <select id="streetsExportShrinkSelect" class="shrink-select" title="Co biên vào trong (Negative Buffer) khi copy / tải GeoJSON để tránh trùng node">
-            <option value="0">Co biên: 0m</option>
-            <option value="2" selected>Co biên: 2m</option>
-            <option value="5">Co biên: 5m</option>
-            <option value="10">Co biên: 10m</option>
-            <option value="20">Co biên: 20m</option>
+            <option value="0">Co: 0m</option>
+            <option value="2" selected>Co: 2m</option>
+            <option value="5">Co: 5m</option>
+            <option value="10">Co: 10m</option>
+            <option value="20">Co: 20m</option>
           </select>
           <span class="stat-pill" id="wardStatsPill">Đang tải...</span>
         </div>
@@ -204,6 +204,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script type="module" src="/js/streetsDemo.js"></script>
+  <script type="module" src="/js/streetsDemo.js?v=20261123"></script>
 </body>
 </html>

@@ -111,6 +111,7 @@ const adminTabWardsBtn = $('adminTabWardsBtn');
 const adminTabDistrictsBtn = $('adminTabDistrictsBtn');
 const adminTabBcvhBtn = $('adminTabBcvhBtn');
 const adminTabUsersBtn = $('adminTabUsersBtn');
+const adminTopMeta = $('adminTopMeta');
 const wardsAdminPanel = $('wardsAdminPanel');
 const oldDistrictsAdminPanel = $('oldDistrictsAdminPanel');
 const bcvhAdminPanel = $('bcvhAdminPanel');
@@ -945,6 +946,7 @@ function switchAdminSubtab(tab) {
   if (oldDistrictsAdminPanel) oldDistrictsAdminPanel.hidden = !isDistricts;
   if (bcvhAdminPanel) bcvhAdminPanel.hidden = !isBcvh;
   if (usersAdminPanel) usersAdminPanel.hidden = !isUsers;
+  if (adminTopMeta) adminTopMeta.hidden = isBcvh || isUsers;
 
   if (isDistricts) loadOldDistricts(true);
   if (isBcvh) loadBcvhOffices(true);
@@ -1884,21 +1886,16 @@ batchLoadBtn.addEventListener('click', async () => {
 
 // --- Startup ---
 (async () => {
-  try {
-    const health = await fetchHealth();
-    updateDbPill(health.db);
-  } catch {
+  const [healthRes, meRes] = await Promise.allSettled([fetchHealth(), fetchAuthMe()]);
+  if (healthRes.status === 'fulfilled') {
+    updateDbPill(healthRes.value.db);
+  } else {
     updateDbPill({ connected: false, error: 'Backend không phản hồi' });
   }
 
-  try {
-    const me = await fetchAuthMe();
-    if (me.authenticated) {
-      showAuthenticated(me);
-    } else {
-      showLoginScreen(me);
-    }
-  } catch {
-    showLoginScreen();
+  if (meRes.status === 'fulfilled' && meRes.value?.authenticated) {
+    showAuthenticated(meRes.value);
+  } else {
+    showLoginScreen(meRes.status === 'fulfilled' ? meRes.value : null);
   }
 })();

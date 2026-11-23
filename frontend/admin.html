@@ -10,7 +10,7 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20261123" />
 </head>
 <body class="admin-body">
   <header class="topbar admin-topbar">
@@ -90,7 +90,7 @@
         </button>
       </div>
 
-      <div class="admin-top-meta">
+      <div id="adminTopMeta" class="admin-top-meta">
         <span class="meta-dot-pill ok" id="adminStatSynced">0/0 có bản đồ</span>
         <span class="meta-dot-pill muted" id="adminStatPending" hidden>0 chưa có</span>
         <span class="meta-dot-pill danger" id="adminStatError" hidden>0 lỗi</span>
@@ -230,7 +230,7 @@
           <option value="20">Co biên: 20m (Hở 40m)</option>
         </select>
         <a id="exportAllBcvhAdminBtn" class="btn small" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">Xuất Excel tất cả</a>
-        <button type="button" id="openNewBcvhBtn" class="btn small primary">🚚 + Thêm Bưu cục Vận hành</button>
+        <button type="button" id="openNewBcvhBtn" class="btn small primary">+ Thêm Bưu cục Vận hành</button>
       </div>
 
       <div class="admin-table-wrap clean-table-wrap">
@@ -555,6 +555,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script type="module" src="/js/adminPage.js"></script>
+  <script type="module" src="/js/adminPage.js?v=20261123"></script>
 </body>
 </html>

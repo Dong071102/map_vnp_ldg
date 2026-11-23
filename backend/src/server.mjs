@@ -195,9 +195,18 @@ async function serveStatic(res, pathname) {
   try {
     const content = await fs.readFile(fullPath);
     const ext = path.extname(fullPath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+    const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' };
+    if (ext === '.html' || ext === '.css' || ext === '.js') {
+      headers['Cache-Control'] = 'no-cache, must-revalidate';
+    }
+    res.writeHead(200, headers);
     res.end(content);
   } catch {
+    if (pathname === '/favicon.ico') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
   }
