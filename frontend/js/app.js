@@ -142,6 +142,7 @@ let activeBcvhId = null;
 const bcvhZoneLayerGroup = L.layerGroup().addTo(map);
 const bcvhLayerGroup = L.layerGroup().addTo(map);
 let selectedRegionId = null;
+let focusedRegionId = null;
 let exportMode = 'merged';
 let colorCursor = 0;
 
@@ -322,6 +323,7 @@ function getEffectiveRegionColor(region) {
 function getRegionStyle(region) {
   const fillOpacity = Number(opacityRange.value);
   const isSelected = region.id === selectedRegionId;
+  const isFocused = region.id === focusedRegionId;
   const isOldDistrict = region.layerGroup === 'district_old';
   const wardsAlsoShown = areWardsVisible();
   const activeColor = getEffectiveRegionColor(region);
@@ -351,6 +353,36 @@ function getRegionStyle(region) {
     }
   }
 
+  // When a specific ward/commune or old district is actively selected/focused, make it stand out vividly
+  if (focusedRegionId !== null) {
+    if (isFocused) {
+      return {
+        color: '#0f172a',
+        weight: 3.4,
+        dashArray: undefined,
+        opacity: 1,
+        fillColor: activeColor,
+        fillOpacity: Math.max(0.52, Math.min(0.78, fillOpacity + 0.22)),
+      };
+    }
+    return isOldDistrict
+      ? {
+          color: activeColor,
+          weight: 1.4,
+          dashArray: wardsAlsoShown ? '7, 5' : undefined,
+          opacity: 0.4,
+          fillColor: activeColor,
+          fillOpacity: wardsAlsoShown ? 0.02 : Math.min(0.12, fillOpacity * 0.35),
+        }
+      : {
+          color: '#94a3b8',
+          weight: 1,
+          opacity: 0.45,
+          fillColor: activeColor,
+          fillOpacity: Math.min(0.12, fillOpacity * 0.35),
+        };
+  }
+
   return isOldDistrict
     ? {
         color: activeColor,
@@ -372,6 +404,9 @@ function getRegionStyle(region) {
 function updateRegionStyle(region) {
   if (region?.layer && typeof region.layer.setStyle === 'function') {
     region.layer.setStyle(getRegionStyle(region));
+    if (region.id === focusedRegionId && typeof region.layer.bringToFront === 'function') {
+      region.layer.bringToFront();
+    }
   }
 }
 
@@ -583,6 +618,7 @@ function buildBcvhCardHtml(office, pos) {
 
 function focusBcvhOffice(officeId) {
   activeBcvhId = activeBcvhId === officeId ? null : officeId;
+  if (activeBcvhId !== null) focusedRegionId = null;
   if (clearBcvhFocusBtn) clearBcvhFocusBtn.hidden = activeBcvhId === null;
 
   for (const r of regions) updateRegionStyle(r);
@@ -928,7 +964,13 @@ function renderRegionList() {
     item.className = `region-item${r.id === selectedRegionId ? ' selected' : ''}${r.visible ? '' : ' hidden-region'}`;
     item.addEventListener('click', (e) => {
       if (e.target.closest('input, button')) return;
-      selectRegion(r.id);
+      if (focusedRegionId === r.id) {
+        focusedRegionId = null;
+        for (const reg of regions) updateRegionStyle(reg);
+        renderRegionList();
+      } else {
+        selectRegion(r.id, { focus: true, zoom: true });
+      }
     });
 
     const colorInput = document.createElement('input');
@@ -979,14 +1021,7 @@ function renderRegionList() {
     zoomBtn.title = 'Định vị & phóng tới khu vực này';
     zoomBtn.innerHTML = LOCATE_SVG;
     zoomBtn.addEventListener('click', () => {
-      if (!r.visible) {
-        r.visible = true;
-        renderRegionOnMap(r);
-        updateToolbarStats();
-        renderRegionList();
-      }
-      selectRegion(r.id);
-      zoomToRegion(r.id);
+      selectRegion(r.id, { focus: true, zoom: true });
     });
 
     actions.append(eyeBtn, zoomBtn);
@@ -1035,13 +1070,46 @@ function renderSelectedMeta() {
   }
 }
 
-function selectRegion(regionId) {
-  const prev = regions.find((r) => r.id === selectedRegionId);
+function selectRegion(regionId, { focus = true, zoom = false } = {}) {
+  const curr = regions.find((r) => r.id === regionId);
+  if (!curr) return;
+
+  let needsFullRerender = false;
+  // Auto-enable the matching layer toggle & visibility so a selected ward/district ALWAYS displays with color
+  if (curr.layerGroup === 'district_old' && !showOldDistrictsLayerToggle.checked) {
+    showOldDistrictsLayerToggle.checked = true;
+    needsFullRerender = true;
+  } else if (curr.layerGroup !== 'district_old' && !showWardsLayerToggle.checked) {
+    showWardsLayerToggle.checked = true;
+    needsFullRerender = true;
+  }
+  if (!curr.visible) {
+    curr.visible = true;
+    needsFullRerender = true;
+  }
+
+  // Clear BCVH dim filter if user picks a ward outside the active BCVH
+  if (activeBcvhId !== null) {
+    const activeOffice = bcvhOffices.find((o) => o.id === activeBcvhId);
+    const inActiveBcvh = activeOffice && (activeOffice.wardRegionIds || []).includes(curr.dbId);
+    if (!inActiveBcvh) {
+      activeBcvhId = null;
+      if (clearBcvhFocusBtn) clearBcvhFocusBtn.hidden = true;
+      renderBcvhMarkers();
+      renderBcvhList();
+    }
+  }
+
   selectedRegionId = regionId;
-  const curr = regions.find((r) => r.id === selectedRegionId);
-  // Update styles in place instead of removing/recreating SVG paths so native dblclick fires reliably
-  if (prev) updateRegionStyle(prev);
-  if (curr) updateRegionStyle(curr);
+  if (focus) focusedRegionId = regionId;
+
+  if (needsFullRerender) {
+    renderAllMapLayers();
+  } else {
+    for (const r of regions) updateRegionStyle(r);
+  }
+
+  if (zoom) zoomToRegion(curr.id);
   renderRegionList();
   renderSelectedMeta();
   updateJsonOutput();
@@ -1147,7 +1215,13 @@ reloadDbBtn.addEventListener('click', async () => {
   if (count >= 0) setStatus(`Đã tải ${count} khu vực từ SQL Server.`, 'success');
 });
 
-fitBoundsBtn.addEventListener('click', fitAllVisibleBounds);
+fitBoundsBtn.addEventListener('click', () => {
+  if (focusedRegionId !== null) {
+    focusedRegionId = null;
+    for (const r of regions) updateRegionStyle(r);
+  }
+  fitAllVisibleBounds();
+});
 
 opacityRange.addEventListener('input', () => {
   for (const r of regions) updateRegionStyle(r);

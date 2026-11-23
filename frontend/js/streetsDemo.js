@@ -405,11 +405,11 @@ function updateStreetStyles() {
         zl.setStyle({ color: '#fb923c', weight: 0.8, opacity: 0.35, fillColor: '#fb923c', fillOpacity: 0.08 });
       } else {
         zl.setStyle({
-          color: '#94a3b8',
-          weight: 0.7,
-          opacity: hasSelection ? 0.22 : 0.42,
+          color: '#64748b',
+          weight: hasSelection ? 0.7 : 0.9,
+          opacity: hasSelection ? 0.22 : 0.52,
           fillColor: col,
-          fillOpacity: hasSelection ? 0.03 : 0.12,
+          fillOpacity: hasSelection ? 0.03 : 0.2,
         });
       }
     }
@@ -1078,7 +1078,13 @@ async function loadWard(wardUnitId) {
     if (bundle.ward.geojson) {
       const wardLayer = L.geoJSON(bundle.ward.geojson, {
         interactive: false,
-        style: { color: '#0f172a', weight: 3, dashArray: '6,4', fillOpacity: 0 },
+        style: {
+          color: '#0f172a',
+          weight: 2.8,
+          dashArray: '6,4',
+          fillColor: '#2563eb',
+          fillOpacity: bundle.streetCount === 0 ? 0.16 : 0.04,
+        },
       }).addTo(wardBorderGroup);
       wardBounds = wardLayer.getBounds();
     } else {
@@ -1087,7 +1093,7 @@ async function loadWard(wardUnitId) {
 
     for (const st of bundle.streets) {
       const zl = L.geoJSON(st.zoneGeojson, {
-        style: { color: '#94a3b8', weight: 0.7, opacity: 0.42, fillColor: streetColor(st.id), fillOpacity: 0.12 },
+        style: { color: '#64748b', weight: 0.9, opacity: 0.52, fillColor: streetColor(st.id), fillOpacity: 0.2 },
         onEachFeature: (_f, lyr) => {
           lyr.bindTooltip(
             `<strong>🛣 ${st.name}</strong><br/>Dài: ${(st.lengthM / 1000).toFixed(2)} km · Vùng: ${st.areaKm2.toFixed(3)} km²<br/><em>Bấm để chọn / bỏ chọn</em>`,
