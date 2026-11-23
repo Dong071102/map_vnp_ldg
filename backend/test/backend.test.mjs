@@ -247,4 +247,19 @@ test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () =
   ]);
   assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '' }]).ok, false);
   assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '0912345678' }]).ok, true);
+
+  // Consecutive duplicate vertices after 6-decimal rounding must be stripped
+  const dupPoly = buildExcelSafePolygonOneLine({
+    type: 'Polygon',
+    coordinates: [
+      [
+        [107.8, 11.5],
+        [107.8000001, 11.5000001],
+        [107.81, 11.5],
+        [107.81, 11.51],
+        [107.8, 11.5],
+      ],
+    ],
+  });
+  assert.equal(JSON.parse(dupPoly).coordinates[0].length, 4);
 });

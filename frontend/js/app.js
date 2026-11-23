@@ -1,6 +1,10 @@
 import {
   fetchSavedRegions,
   fetchBcvhOffices,
+  getExportShrinkMeters,
+  setExportShrinkMeters,
+  appendShrinkParam,
+  shrinkGeojson,
 } from './api.js';
 import {
   isPolygonFeature,
@@ -100,6 +104,7 @@ const statRegions = $('statRegions');
 const bcvhCount = $('bcvhCount');
 const clearBcvhFocusBtn = $('clearBcvhFocusBtn');
 const exportAllBcvhExcelBtn = $('exportAllBcvhExcelBtn');
+const exportShrinkSelect = $('exportShrinkSelect');
 const bcvhListEmpty = $('bcvhListEmpty');
 const bcvhListEl = $('bcvhList');
 
@@ -370,14 +375,23 @@ function updateRegionStyle(region) {
   }
 }
 
+async function resolveExportGeojson(rawGeojson) {
+  const shrinkM = getExportShrinkMeters();
+  if (!(shrinkM > 0) || !rawGeojson) return { geojson: rawGeojson, shrinkM: 0 };
+  const res = await shrinkGeojson(rawGeojson, shrinkM);
+  return { geojson: res.geojson || rawGeojson, shrinkM: res.shrinkMeters || shrinkM };
+}
+
 async function copyRegionGeojson(region) {
   const data = getFilteredRegionGeojson(region);
-  const text = serializeGeometryOneLine(data);
-  if (!text) return;
-  const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
   try {
+    const { geojson, shrinkM } = await resolveExportGeojson(data);
+    const text = serializeGeometryOneLine(geojson);
+    if (!text) return;
+    const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
     await copyTextToClipboard(text);
-    const msg = `Đã copy GeoJSON 1 dòng "${region.meta.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB) ✓`;
+    const shrinkNote = shrinkM > 0 ? ` · co biên ${shrinkM}m` : '';
+    const msg = `Đã copy GeoJSON 1 dòng "${region.meta.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB${shrinkNote}) ✓`;
     setStatus(msg, 'success');
     showMapCopyToast(msg, false);
     // Brief visual flash on the copied polygon
@@ -385,8 +399,8 @@ async function copyRegionGeojson(region) {
       region.layer.setStyle({ weight: 4.5, color: '#ffffff', fillOpacity: 0.65 });
       setTimeout(() => updateRegionStyle(region), 320);
     }
-  } catch {
-    const errMsg = 'Không thể copy tự động, hãy dùng nút Copy hoặc tải file bên phải.';
+  } catch (err) {
+    const errMsg = err?.message || 'Không thể copy tự động, hãy dùng nút Copy hoặc tải file bên phải.';
     setStatus(errMsg, 'error');
     showMapCopyToast(errMsg, true);
   }
@@ -663,12 +677,14 @@ async function copyBcvhServiceGeojson(office) {
     showMapCopyToast(`"${office?.name || 'BCVH'}" chưa có GeoJSON vùng phục vụ.`, true);
     return;
   }
-  const text = serializeGeometryOneLine(office.serviceGeojson);
-  if (!text) return;
-  const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
   try {
+    const { geojson, shrinkM } = await resolveExportGeojson(office.serviceGeojson);
+    const text = serializeGeometryOneLine(geojson);
+    if (!text) return;
+    const sizeKb = (new Blob([text]).size / 1024).toFixed(1);
     await copyTextToClipboard(text);
-    const msg = `Đã copy GeoJSON 1 dòng "${office.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB) ✓`;
+    const shrinkNote = shrinkM > 0 ? ` · co biên ${shrinkM}m` : '';
+    const msg = `Đã copy GeoJSON 1 dòng "${office.name}" (${text.length.toLocaleString('vi-VN')} ký tự · ${sizeKb} KB${shrinkNote}) ✓`;
     setStatus(msg, 'success');
     showMapCopyToast(msg, false);
   } catch {
@@ -765,11 +781,12 @@ function updateExportAllBcvhButton() {
   const blocked = bcvhOffices.length === 0 || incomplete.length > 0;
   exportAllBcvhExcelBtn.classList.toggle('is-incomplete', blocked);
   exportAllBcvhExcelBtn.setAttribute('aria-disabled', String(blocked));
+  exportAllBcvhExcelBtn.href = appendShrinkParam('/api/bcvh/export-excel');
   exportAllBcvhExcelBtn.title = blocked
     ? bcvhOffices.length === 0
       ? 'Chưa có BCVH nào để xuất Excel'
       : `Không thể xuất tất cả: còn ${incomplete.length} BCVH thiếu Diện tích (m²), Người liên hệ hoặc Số điện thoại`
-    : 'Xuất tất cả BCVH ra file Excel theo mẫu VNPost';
+    : `Xuất tất cả BCVH ra file Excel theo mẫu VNPost${getExportShrinkMeters() > 0 ? ` (co biên ${getExportShrinkMeters()}m)` : ''}`;
 }
 
 exportAllBcvhExcelBtn?.addEventListener('click', (e) => {
@@ -832,7 +849,7 @@ function renderBcvhList() {
         </div>
       </div>
       <div class="bcvh-item-actions">
-        <a class="btn small export-bcvh-excel-btn${excelBlocked ? ' is-incomplete' : ''}" href="/api/bcvh/${office.id}/export-excel" aria-disabled="${excelBlocked}" title="${escapeHtml(excelTitle)}">Xuất Excel</a>
+        <a class="btn small export-bcvh-excel-btn${excelBlocked ? ' is-incomplete' : ''}" href="${appendShrinkParam(`/api/bcvh/${office.id}/export-excel`)}" aria-disabled="${excelBlocked}" title="${escapeHtml(excelTitle)}">Xuất Excel</a>
         <button type="button" class="btn small copy-bcvh-geo-btn" title="Copy GeoJSON vùng phục vụ đã gộp của BCVH này">Copy</button>
       </div>
     `;
@@ -1004,7 +1021,7 @@ function renderSelectedMeta() {
   if (m.directGeoshapeUrl) {
     links.push(`<a class="meta-link" href="${escapeHtml(m.directGeoshapeUrl)}" target="_blank" rel="noopener">Link GeoJSON ↗</a>`);
   } else if (r.dbId) {
-    links.push(`<a class="meta-link" href="/api/regions/${encodeURIComponent(r.dbId)}/geojson" target="_blank" rel="noopener">Link GeoJSON ↗</a>`);
+    links.push(`<a class="meta-link" href="${appendShrinkParam(`/api/regions/${encodeURIComponent(r.dbId)}/geojson`)}" target="_blank" rel="noopener">Link GeoJSON ↗</a>`);
   }
   metaLinks.innerHTML = links.join('');
 
@@ -1176,38 +1193,66 @@ exportTabBtns.forEach((btn) => {
 
 prettyToggle.addEventListener('change', updateJsonOutput);
 
+if (exportShrinkSelect) {
+  exportShrinkSelect.value = String(getExportShrinkMeters());
+  exportShrinkSelect.addEventListener('change', () => {
+    const m = setExportShrinkMeters(exportShrinkSelect.value);
+    renderBcvhList();
+    renderSelectedMeta();
+    setStatus(
+      m > 0
+        ? `Đã bật co biên ${m}m (khe hở ~${m * 2}m giữa các vùng giáp ranh khi xuất Excel / Copy GeoJSON).`
+        : 'Đã tắt co biên (xuất ranh giới khít gốc 0m).',
+      'info',
+    );
+  });
+}
+
 copyBtn.addEventListener('click', async () => {
   const data = getExportGeojson();
-  const text = serializeGeometryOneLine(data);
-  if (!text) return;
+  if (!data) return;
+  const old = copyBtn.textContent;
+  copyBtn.disabled = true;
   try {
+    const { geojson, shrinkM } = await resolveExportGeojson(data);
+    const text = serializeGeometryOneLine(geojson);
+    if (!text) return;
     await copyTextToClipboard(text);
-    const old = copyBtn.textContent;
     copyBtn.textContent = 'Đã copy ✓';
+    if (shrinkM > 0) setStatus(`Đã copy GeoJSON (co biên ${shrinkM}m).`, 'success');
     setTimeout(() => (copyBtn.textContent = old), 1500);
   } catch {
     setStatus('Không thể copy tự động, vui lòng dùng nút tải file.', 'error');
+  } finally {
+    copyBtn.disabled = false;
   }
 });
 
-function downloadFile(ext) {
+async function downloadFile(ext) {
   const data = getExportGeojson();
-  const geom = extractBareGeometry(data);
-  if (!geom) return;
-  const text = prettyToggle.checked ? JSON.stringify(geom, null, 2) : JSON.stringify(geom);
-  const blob = new Blob([text], { type: 'application/geo+json;charset=utf-8' });
-  let filename = `regions-merged-${regions.filter((r) => isRegionLayerEnabled(r)).length}.${ext}`;
-  if (exportMode === 'selected') {
-    const r = regions.find((x) => x.id === selectedRegionId);
-    filename = `${slugify(r?.meta?.name)}${r?.meta?.qid ? `-${r.meta.qid}` : ''}.${ext}`;
+  if (!data) return;
+  try {
+    const { geojson, shrinkM } = await resolveExportGeojson(data);
+    const geom = extractBareGeometry(geojson);
+    if (!geom) return;
+    const text = prettyToggle.checked ? JSON.stringify(geom, null, 2) : JSON.stringify(geom);
+    const blob = new Blob([text], { type: 'application/geo+json;charset=utf-8' });
+    const shrinkSuffix = shrinkM > 0 ? `-co${shrinkM}m` : '';
+    let filename = `regions-merged-${regions.filter((r) => isRegionLayerEnabled(r)).length}${shrinkSuffix}.${ext}`;
+    if (exportMode === 'selected') {
+      const r = regions.find((x) => x.id === selectedRegionId);
+      filename = `${slugify(r?.meta?.name)}${r?.meta?.qid ? `-${r.meta.qid}` : ''}${shrinkSuffix}.${ext}`;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    setStatus(`Lỗi co biên khi tải file: ${err.message}`, 'error');
   }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(a.href);
 }
 
 downloadGeojsonBtn.addEventListener('click', () => downloadFile('geojson'));

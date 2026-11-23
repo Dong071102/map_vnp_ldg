@@ -222,7 +222,14 @@
           <span class="search-ico" aria-hidden="true">🔍</span>
           <input id="bcvhSearchInput" type="text" class="admin-search-clean" placeholder="Tìm tên BCVH, mã, xã phục vụ..." />
         </div>
-        <a id="exportAllBcvhAdminBtn" class="btn small" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">📥 Xuất Excel tất cả</a>
+        <select id="adminExportShrinkSelect" class="filter-select" title="Co biên vào trong (Negative Buffer) khi xuất Excel / GeoJSON để tránh trùng node">
+          <option value="0">Co biên: 0m (Khít)</option>
+          <option value="2" selected>Co biên: 2m (Hở 4m)</option>
+          <option value="5">Co biên: 5m (Hở 10m)</option>
+          <option value="10">Co biên: 10m (Hở 20m)</option>
+          <option value="20">Co biên: 20m (Hở 40m)</option>
+        </select>
+        <a id="exportAllBcvhAdminBtn" class="btn small" href="/api/bcvh/export-excel" title="Xuất tất cả BCVH ra file Excel theo mẫu VNPost">Xuất Excel tất cả</a>
         <button type="button" id="openNewBcvhBtn" class="btn small primary">🚚 + Thêm Bưu cục Vận hành</button>
       </div>
 

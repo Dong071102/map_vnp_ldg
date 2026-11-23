@@ -58,6 +58,7 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  shrinkGeojsonByMeters,
   closeDb,
 } from './db.mjs';
 import { extractRegion, normalizeToFeatureCollection, hasUsableGeometry } from './wikiExtractor.mjs';
@@ -68,7 +69,7 @@ import {
 } from './lamdongParser.mjs';
 import { loadOpenDataBundle, normalizeAdminName } from './openDataImporter.mjs';
 import { buildBcvhWorkbookBuffer, validateBcvhForExcelExport } from './bcvhExcel.mjs';
-import { computeGeoStats } from '../../frontend/js/geometry.js';
+import { computeGeoStats, serializeGeometryOneLine } from '../../frontend/js/geometry.js';
 
 const PALETTE = [
   '#2563eb', '#10b981', '#f59e0b', '#8b5cf6',
@@ -314,7 +315,43 @@ export function createAppServer() {
         return;
       }
 
-      // --- Direct Open-Data GeoJSON Map Endpoints ---
+function parseShrinkMeters(raw) {
+  if (raw === null || raw === undefined || raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(100, n);
+}
+
+// --- Direct Open-Data GeoJSON Map Endpoints ---
+      if (pathname === '/api/geometry/shrink' && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const shrinkMeters = parseShrinkMeters(body.shrinkMeters ?? body.shrinkM);
+          if (!body.geojson || typeof body.geojson !== 'object') {
+            sendJson(res, 400, { error: 'Thiếu dữ liệu GeoJSON cần co biên.' });
+            return;
+          }
+          const geojson = shrinkMeters > 0 ? await shrinkGeojsonByMeters(body.geojson, shrinkMeters) : body.geojson;
+          const fc =
+            geojson.type === 'FeatureCollection'
+              ? geojson
+              : geojson.type === 'Feature'
+                ? { type: 'FeatureCollection', features: [geojson] }
+                : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geojson }] };
+          const stats = computeGeoStats(fc, null);
+          sendJson(res, 200, {
+            geojson,
+            oneLineGeojson: serializeGeometryOneLine(geojson),
+            shrinkMeters,
+            points: stats.points,
+            areaKm2: stats.areaKm2,
+          });
+        } catch (err) {
+          sendJson(res, err.statusCode || 400, { error: err.message });
+        }
+        return;
+      }
+
       const regionGeoMatch = pathname.match(/^\/api\/regions\/(\d+)\/geojson$/);
       if (regionGeoMatch && req.method === 'GET') {
         try {
@@ -323,7 +360,9 @@ export function createAppServer() {
             sendJson(res, 404, { error: 'Không tìm thấy khu vực.' });
             return;
           }
-          sendJson(res, 200, region.geojson);
+          const shrinkM = parseShrinkMeters(reqUrl.searchParams.get('shrinkM'));
+          const geo = shrinkM > 0 ? await shrinkGeojsonByMeters(region.geojson, shrinkM) : region.geojson;
+          sendJson(res, 200, geo);
         } catch (err) {
           sendJson(res, 503, { error: err.message });
         }
@@ -469,12 +508,13 @@ export function createAppServer() {
       if (pathname === '/api/streets/geojson' && req.method === 'GET') {
         try {
           const wardUnitId = Number(reqUrl.searchParams.get('wardUnitId'));
+          const shrinkM = parseShrinkMeters(reqUrl.searchParams.get('shrinkM'));
           const bundle = await getWardStreetsBundle(wardUnitId);
           if (!bundle) {
             sendJson(res, 404, { error: 'Không tìm thấy xã/phường này.' });
             return;
           }
-          const fc = {
+          const rawFc = {
             type: 'FeatureCollection',
             features: bundle.streets.map((s) => ({
               type: 'Feature',
@@ -489,10 +529,11 @@ export function createAppServer() {
               geometry: s.zoneGeojson,
             })),
           };
+          const fc = shrinkM > 0 ? await shrinkGeojsonByMeters(rawFc, shrinkM) : rawFc;
           const ascii = toSafeSlug(bundle.ward.name, `ward_${wardUnitId}`);
           res.writeHead(200, {
             'Content-Type': 'application/geo+json; charset=utf-8',
-            'Content-Disposition': `attachment; filename="duong_${ascii}.geojson"`,
+            'Content-Disposition': `attachment; filename="duong_${ascii}${shrinkM > 0 ? `_co${shrinkM}m` : ''}.geojson"`,
           });
           res.end(JSON.stringify(fc));
         } catch (err) {
@@ -628,18 +669,31 @@ export function createAppServer() {
 
       if (pathname === '/api/bcvh/export-excel' && req.method === 'GET') {
         try {
+          const shrinkM = parseShrinkMeters(reqUrl.searchParams.get('shrinkM'));
           const offices = await listBcvhOffices();
           const check = validateBcvhForExcelExport(offices);
           if (!check.ok) {
             sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
             return;
           }
-          const buf = buildBcvhWorkbookBuffer(offices);
+          const exportOffices =
+            shrinkM > 0
+              ? await Promise.all(
+                  offices.map(async (o) => ({
+                    ...o,
+                    serviceGeojson: o.serviceGeojson
+                      ? await shrinkGeojsonByMeters(o.serviceGeojson, shrinkM)
+                      : o.serviceGeojson,
+                  })),
+                )
+              : offices;
+          const buf = buildBcvhWorkbookBuffer(exportOffices);
+          const suffix = shrinkM > 0 ? `_co${shrinkM}m` : '';
           sendXlsxDownload(
             res,
             buf,
-            'Nhập_dữ_liệu_nút-Tat_ca_BCVH.xlsx',
-            'Nhap_du_lieu_nut-Tat_ca_BCVH.xlsx',
+            `Nhập_dữ_liệu_nút-Tat_ca_BCVH${suffix}.xlsx`,
+            `Nhap_du_lieu_nut-Tat_ca_BCVH${suffix}.xlsx`,
           );
         } catch (err) {
           sendJson(res, 503, { error: err.message });
@@ -650,6 +704,7 @@ export function createAppServer() {
       const bcvhExcelMatch = pathname.match(/^\/api\/bcvh\/(\d+)\/export-excel$/);
       if (bcvhExcelMatch && req.method === 'GET') {
         try {
+          const shrinkM = parseShrinkMeters(reqUrl.searchParams.get('shrinkM'));
           const office = await getBcvhOfficeById(bcvhExcelMatch[1]);
           if (!office) {
             sendJson(res, 404, { error: 'Không tìm thấy Bưu cục Vận hành.' });
@@ -660,14 +715,19 @@ export function createAppServer() {
             sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
             return;
           }
-          const buf = buildBcvhWorkbookBuffer([office]);
+          const exportOffice =
+            shrinkM > 0 && office.serviceGeojson
+              ? { ...office, serviceGeojson: await shrinkGeojsonByMeters(office.serviceGeojson, shrinkM) }
+              : office;
+          const buf = buildBcvhWorkbookBuffer([exportOffice]);
           const safeUnicodeName = String(office.name || 'BCVH').replace(/[\\/:*?"<>|]/g, '').trim().replace(/\s+/g, '_');
           const safeAsciiName = toSafeSlug(office.name, `BCVH_${office.id}`);
+          const suffix = shrinkM > 0 ? `_co${shrinkM}m` : '';
           sendXlsxDownload(
             res,
             buf,
-            `Nhập_dữ_liệu_nút-${safeUnicodeName || 'BCVH'}.xlsx`,
-            `Nhap_du_lieu_nut-${safeAsciiName}.xlsx`,
+            `Nhập_dữ_liệu_nút-${safeUnicodeName || 'BCVH'}${suffix}.xlsx`,
+            `Nhap_du_lieu_nut-${safeAsciiName}${suffix}.xlsx`,
           );
         } catch (err) {
           sendJson(res, 503, { error: err.message });
@@ -678,12 +738,14 @@ export function createAppServer() {
       const bcvhGeoMatch = pathname.match(/^\/api\/bcvh\/(\d+)\/geojson$/);
       if (bcvhGeoMatch && req.method === 'GET') {
         try {
+          const shrinkM = parseShrinkMeters(reqUrl.searchParams.get('shrinkM'));
           const office = await getBcvhOfficeById(bcvhGeoMatch[1]);
           if (!office || !office.serviceGeojson) {
             sendJson(res, 404, { error: 'Không tìm thấy vùng phục vụ GeoJSON của Bưu cục Vận hành này.' });
             return;
           }
-          sendJson(res, 200, office.serviceGeojson);
+          const geo = shrinkM > 0 ? await shrinkGeojsonByMeters(office.serviceGeojson, shrinkM) : office.serviceGeojson;
+          sendJson(res, 200, geo);
         } catch (err) {
           sendJson(res, 503, { error: err.message });
         }

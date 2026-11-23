@@ -125,9 +125,15 @@ function simplifyDP(pts, sqTol) {
 
 function closeAndRoundRing(ring, decimals = 6) {
   const factor = 10 ** decimals;
-  const pts = ring
-    .map((c) => [Math.round(Number(c[0]) * factor) / factor, Math.round(Number(c[1]) * factor) / factor])
-    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  const pts = [];
+  for (const c of ring || []) {
+    const x = Math.round(Number(c[0]) * factor) / factor;
+    const y = Math.round(Number(c[1]) * factor) / factor;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const prev = pts[pts.length - 1];
+    if (prev && prev[0] === x && prev[1] === y) continue;
+    pts.push([x, y]);
+  }
   if (pts.length < 3) return null;
   const first = pts[0];
   const last = pts[pts.length - 1];

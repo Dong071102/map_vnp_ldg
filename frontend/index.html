@@ -119,6 +119,13 @@
         <div class="geojson-drawer-head">
           <span class="geojson-drawer-title">GeoJSON</span>
           <div class="json-actions">
+            <select id="exportShrinkSelect" class="shrink-select" title="Co biên vào trong bằng Negative Buffer khi xuất Excel / Copy GeoJSON để tránh trùng node">
+              <option value="0">Co: 0m</option>
+              <option value="2" selected>Co: 2m</option>
+              <option value="5">Co: 5m</option>
+              <option value="10">Co: 10m</option>
+              <option value="20">Co: 20m</option>
+            </select>
             <button type="button" id="copyBtn" class="btn small" disabled>Copy</button>
             <button type="button" id="downloadGeojsonBtn" class="btn small primary" disabled>.geojson</button>
             <button type="button" id="toggleGeojsonDrawerBtn" class="btn small" aria-expanded="false">Mở ▴</button>

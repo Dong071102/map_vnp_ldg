@@ -183,3 +183,45 @@ export function deleteAdminUser(id) {
     method: 'DELETE',
   });
 }
+
+// --- Boundary Inward Negative Buffer (STBuffer(-d)) Helpers ---
+const SHRINK_STORAGE_KEY = 'export_shrink_m';
+
+export function getExportShrinkMeters() {
+  try {
+    const raw = localStorage.getItem(SHRINK_STORAGE_KEY);
+    if (raw === null) return 2; // Default 2m inward per polygon (~4m clean gap between neighbors)
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.min(100, n) : 2;
+  } catch {
+    return 2;
+  }
+}
+
+export function setExportShrinkMeters(meters) {
+  const clean = Number.isFinite(Number(meters)) && Number(meters) >= 0 ? Math.min(100, Number(meters)) : 0;
+  try {
+    localStorage.setItem(SHRINK_STORAGE_KEY, String(clean));
+  } catch {
+    // ignore storage errors
+  }
+  return clean;
+}
+
+export function appendShrinkParam(url, shrinkMeters = getExportShrinkMeters()) {
+  const m = Number(shrinkMeters) || 0;
+  if (!(m > 0)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}shrinkM=${encodeURIComponent(m)}`;
+}
+
+export function shrinkGeojson(geojson, shrinkMeters = getExportShrinkMeters()) {
+  const m = Number(shrinkMeters) || 0;
+  if (!(m > 0)) {
+    return Promise.resolve({ geojson, shrinkMeters: 0 });
+  }
+  return requestJson('/api/geometry/shrink', {
+    method: 'POST',
+    body: JSON.stringify({ geojson, shrinkMeters: m }),
+  });
+}

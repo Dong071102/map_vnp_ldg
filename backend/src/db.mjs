@@ -79,13 +79,75 @@ function parseWktRing(ringText) {
     if (parts.length < 2) continue;
     const x = Math.round(Number(parts[0]) * 1e6) / 1e6;
     const y = Math.round(Number(parts[1]) * 1e6) / 1e6;
-    if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const prev = pts[pts.length - 1];
+    if (prev && prev[0] === x && prev[1] === y) continue;
+    pts.push([x, y]);
   }
   if (pts.length < 3) return null;
   const first = pts[0];
   const last = pts[pts.length - 1];
   if (first[0] !== last[0] || first[1] !== last[1]) pts.push([first[0], first[1]]);
   return pts.length >= 4 ? pts : null;
+}
+
+const METERS_PER_DEGREE_LDG = 111195;
+
+async function shrinkSingleGeometryWkt(wkt, shrinkMeters) {
+  const db = await getReadyPool();
+  const deg = Math.min(100, Math.max(0, Number(shrinkMeters) || 0)) / METERS_PER_DEGREE_LDG;
+  if (!wkt || !(deg > 0)) return null;
+
+  const result = await db
+    .request()
+    .input('wkt', sql.NVarChar(sql.MAX), wkt)
+    .input('deg', sql.Float, deg)
+    .query(`
+      DECLARE @g GEOMETRY = GEOMETRY::STGeomFromText(@wkt, 4326).MakeValid();
+      DECLARE @d FLOAT = @deg;
+      DECLARE @s GEOMETRY = @g.BufferWithTolerance(-@d, @d * 0.2, 0).MakeValid();
+      IF @s.STIsEmpty() = 1 SET @s = @g.BufferWithTolerance(-@d * 0.5, @d * 0.1, 0).MakeValid();
+      IF @s.STIsEmpty() = 1 SET @s = @g.BufferWithTolerance(-@d * 0.2, @d * 0.05, 0).MakeValid();
+      IF @s.STIsEmpty() = 1 SET @s = @g;
+      SELECT @s.STAsText() AS wkt;
+    `);
+  return result.recordset[0]?.wkt || null;
+}
+
+/**
+ * Inward negative buffer (SQL Server STBuffer/BufferWithTolerance(-d)) to separate shared boundaries
+ * and eliminate duplicate boundary vertices between neighboring polygons.
+ * Preserves input GeoJSON shape (FeatureCollection / Feature / bare Geometry) and shrinks each
+ * feature independently so neighboring features in the same collection separate cleanly.
+ */
+export async function shrinkGeojsonByMeters(geojson, shrinkMeters) {
+  const meters = Math.min(100, Math.max(0, Number(shrinkMeters) || 0));
+  if (!geojson || typeof geojson !== 'object' || !(meters > 0)) return geojson;
+
+  const shrinkGeom = async (geomObj) => {
+    const wkt = geojsonToMultiPolygonWkt(geomObj);
+    if (!wkt) return geomObj;
+    const outWkt = await shrinkSingleGeometryWkt(wkt, meters);
+    const parsed = wktToGeoJsonGeometry(outWkt);
+    return parsed || geomObj;
+  };
+
+  if (geojson.type === 'FeatureCollection' && Array.isArray(geojson.features)) {
+    const features = await Promise.all(
+      geojson.features.map(async (f) => {
+        if (!f?.geometry) return f;
+        const shrunk = await shrinkGeom(f.geometry);
+        return { ...f, geometry: shrunk };
+      }),
+    );
+    return { ...geojson, features };
+  }
+
+  if (geojson.type === 'Feature' && geojson.geometry) {
+    return { ...geojson, geometry: await shrinkGeom(geojson.geometry) };
+  }
+
+  return shrinkGeom(geojson);
 }
 
 function splitTopLevelGroups(str) {

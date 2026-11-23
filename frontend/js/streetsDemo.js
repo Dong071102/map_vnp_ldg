@@ -2,12 +2,19 @@ import { createPolygonEditor } from './polygonEditor.js';
 import { serializeGeometryOneLine } from './geometry.js';
 import { notify, confirmNoti } from './notify.js';
 import { createAuthMenu, hasAuthPerm } from './authMenu.js';
+import {
+  getExportShrinkMeters,
+  setExportShrinkMeters,
+  appendShrinkParam,
+  shrinkGeojson,
+} from './api.js';
 
 const $ = (id) => document.getElementById(id);
 
 const statusBanner = $('statusBanner');
 const authMenu = createAuthMenu($('authMenuHost'), { showAdminLink: true });
 const downloadWardStreetsLink = $('downloadWardStreetsLink');
+const streetsExportShrinkSelect = $('streetsExportShrinkSelect');
 const fitWardBtn = $('fitWardBtn');
 const toggleLabelsBtn = $('toggleLabelsBtn');
 const toggleSavedRoutes = $('toggleSavedRoutes');
@@ -314,12 +321,22 @@ function renderSavedRoutesList() {
     const copyBtn = item.querySelector('.copy-route-btn');
     copyBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const text = serializeGeometryOneLine(r.geojson);
-      if (!text) return;
-      await copyText(text);
-      copyBtn.textContent = '✓';
-      setStatus(`Đã copy GeoJSON 1 dòng "${r.name}" (${text.length.toLocaleString('vi-VN')} ký tự).`, 'success');
-      setTimeout(() => (copyBtn.textContent = 'Copy'), 1400);
+      copyBtn.disabled = true;
+      try {
+        const m = getExportShrinkMeters();
+        const res = m > 0 ? await shrinkGeojson(r.geojson, m) : { geojson: r.geojson };
+        const text = serializeGeometryOneLine(res.geojson || r.geojson);
+        if (!text) return;
+        await copyText(text);
+        copyBtn.textContent = '✓';
+        const shrinkNote = m > 0 ? ` · co biên ${m}m` : '';
+        setStatus(`Đã copy GeoJSON 1 dòng "${r.name}" (${text.length.toLocaleString('vi-VN')} ký tự${shrinkNote}).`, 'success');
+        setTimeout(() => (copyBtn.textContent = 'Copy'), 1400);
+      } catch (err) {
+        setStatus(`Lỗi copy GeoJSON: ${err.message}`, 'error');
+      } finally {
+        copyBtn.disabled = false;
+      }
     });
     const delBtn = item.querySelector('.del-route-btn');
     if (delBtn) {
@@ -855,19 +872,36 @@ editorSaveBtn.addEventListener('click', async () => {
 });
 
 editorCopyBtn.addEventListener('click', async () => {
-  const geo = polygonEditor?.getGeojson() || editingSavedGeojson;
-  const text = serializeGeometryOneLine(geo);
-  if (!text) return;
-  await copyText(text);
+  const rawGeo = polygonEditor?.getGeojson() || editingSavedGeojson;
+  if (!rawGeo) return;
   const old = editorCopyBtn.textContent;
-  editorCopyBtn.textContent = 'Đã copy ✓';
-  setTimeout(() => (editorCopyBtn.textContent = old), 1400);
+  editorCopyBtn.disabled = true;
+  try {
+    const m = getExportShrinkMeters();
+    const res = m > 0 ? await shrinkGeojson(rawGeo, m) : { geojson: rawGeo };
+    const text = serializeGeometryOneLine(res.geojson || rawGeo);
+    if (!text) return;
+    await copyText(text);
+    editorCopyBtn.textContent = 'Đã copy ✓';
+    if (m > 0) setEditorToast(`Đã copy GeoJSON 1 dòng (co biên ${m}m).`, 'success');
+    setTimeout(() => (editorCopyBtn.textContent = old), 1400);
+  } catch (err) {
+    setEditorToast(`Lỗi co biên khi copy: ${err.message}`, 'error');
+  } finally {
+    editorCopyBtn.disabled = false;
+  }
 });
 
-editorDownloadBtn.addEventListener('click', () => {
-  const geo = polygonEditor?.getGeojson() || editingSavedGeojson;
-  if (!geo || !editingRoute) return;
-  downloadGeojson(geo, `tuyen_duong_thu_${editingRoute.id}.geojson`);
+editorDownloadBtn.addEventListener('click', async () => {
+  const rawGeo = polygonEditor?.getGeojson() || editingSavedGeojson;
+  if (!rawGeo || !editingRoute) return;
+  try {
+    const m = getExportShrinkMeters();
+    const res = m > 0 ? await shrinkGeojson(rawGeo, m) : { geojson: rawGeo };
+    downloadGeojson(res.geojson || rawGeo, `khu_vuc_phat_${editingRoute.id}${m > 0 ? `_co${m}m` : ''}.geojson`);
+  } catch (err) {
+    setEditorToast(`Lỗi co biên khi tải file: ${err.message}`, 'error');
+  }
 });
 
 window.addEventListener('keydown', (e) => {
@@ -1036,7 +1070,7 @@ async function loadWard(wardUnitId) {
 
     bundle = data;
     wardStatsPill.textContent = `${bundle.ward.name} · ${bundle.streetCount} đường · ${bundle.ward.areaKm2} km²`;
-    downloadWardStreetsLink.href = `/api/streets/geojson?wardUnitId=${encodeURIComponent(wardUnitId)}`;
+    downloadWardStreetsLink.href = appendShrinkParam(`/api/streets/geojson?wardUnitId=${encodeURIComponent(wardUnitId)}`);
     downloadWardStreetsLink.hidden = bundle.streetCount === 0;
 
     if (bundle.ward.geojson) {
@@ -1122,35 +1156,70 @@ clearSelectedBtn.addEventListener('click', () => {
   if (wardBounds?.isValid()) map.fitBounds(wardBounds, { padding: [24, 24] });
 });
 
+if (streetsExportShrinkSelect) {
+  streetsExportShrinkSelect.value = String(getExportShrinkMeters());
+  streetsExportShrinkSelect.addEventListener('change', () => {
+    const m = setExportShrinkMeters(streetsExportShrinkSelect.value);
+    if (bundle?.ward?.id) {
+      downloadWardStreetsLink.href = appendShrinkParam(`/api/streets/geojson?wardUnitId=${encodeURIComponent(bundle.ward.id)}`);
+    }
+    setStatus(
+      m > 0
+        ? `Đã bật co biên ${m}m (tạo khe hở ~${m * 2}m khi copy / tải GeoJSON).`
+        : 'Đã tắt co biên (xuất biên khít 0m).',
+      'info',
+    );
+  });
+}
+
 copyMergedBtn.addEventListener('click', async () => {
-  if (!latestMerged?.oneLineGeojson) return;
-  await copyText(latestMerged.oneLineGeojson);
+  if (!latestMerged?.geometry) return;
   const old = copyMergedBtn.textContent;
-  copyMergedBtn.textContent = 'Đã copy ✓';
-  setTimeout(() => (copyMergedBtn.textContent = old), 1400);
+  copyMergedBtn.disabled = true;
+  try {
+    const m = getExportShrinkMeters();
+    const res = m > 0 ? await shrinkGeojson(latestMerged.geometry, m) : { oneLineGeojson: latestMerged.oneLineGeojson };
+    const text = res.oneLineGeojson || serializeGeometryOneLine(res.geojson || latestMerged.geometry);
+    if (!text) return;
+    await copyText(text);
+    copyMergedBtn.textContent = 'Đã copy ✓';
+    if (m > 0) setStatus(`Đã copy GeoJSON khu vực phát (co biên ${m}m).`, 'success');
+    setTimeout(() => (copyMergedBtn.textContent = old), 1400);
+  } catch (err) {
+    setStatus(`Lỗi copy GeoJSON: ${err.message}`, 'error');
+  } finally {
+    copyMergedBtn.disabled = false;
+  }
 });
 
-downloadMergedBtn.addEventListener('click', () => {
+downloadMergedBtn.addEventListener('click', async () => {
   if (!latestMerged || !bundle) return;
-  downloadGeojson(
-    {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {
-            name: mailRouteNameInput.value.trim() || 'Tuyến đường thư',
-            ward: bundle.ward.name,
-            streets: latestMerged.streetNames,
-            area_km2: latestMerged.areaKm2,
-            length_m: latestMerged.totalLengthM,
+  try {
+    const m = getExportShrinkMeters();
+    const res = m > 0 ? await shrinkGeojson(latestMerged.geometry, m) : { geojson: latestMerged.geometry };
+    downloadGeojson(
+      {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: {
+              name: mailRouteNameInput.value.trim() || 'Khu vực phát',
+              ward: bundle.ward.name,
+              streets: latestMerged.streetNames,
+              area_km2: latestMerged.areaKm2,
+              length_m: latestMerged.totalLengthM,
+              shrink_m: m,
+            },
+            geometry: res.geojson || latestMerged.geometry,
           },
-          geometry: latestMerged.geometry,
-        },
-      ],
-    },
-    `tuyen_duong_thu_${bundle.ward.id}.geojson`,
-  );
+        ],
+      },
+      `khu_vuc_phat_${bundle.ward.id}${m > 0 ? `_co${m}m` : ''}.geojson`,
+    );
+  } catch (err) {
+    setStatus(`Lỗi tải GeoJSON: ${err.message}`, 'error');
+  }
 });
 
 function applyAdminPermissionsUI() {
