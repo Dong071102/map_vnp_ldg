@@ -123,6 +123,133 @@ function simplifyDP(pts, sqTol) {
   return out;
 }
 
+function orient2d(a, b, c) {
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+function pointOnSeg(a, b, p) {
+  const eps = 1e-12;
+  return (
+    Math.min(a[0], b[0]) - eps <= p[0] &&
+    p[0] <= Math.max(a[0], b[0]) + eps &&
+    Math.min(a[1], b[1]) - eps <= p[1] &&
+    p[1] <= Math.max(a[1], b[1]) + eps
+  );
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const o1 = orient2d(a, b, c);
+  const o2 = orient2d(a, b, d);
+  const o3 = orient2d(c, d, a);
+  const o4 = orient2d(c, d, b);
+  if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return true;
+  if (Math.abs(o1) <= 1e-15 && pointOnSeg(a, b, c)) return true;
+  if (Math.abs(o2) <= 1e-15 && pointOnSeg(a, b, d)) return true;
+  if (Math.abs(o3) <= 1e-15 && pointOnSeg(c, d, a)) return true;
+  if (Math.abs(o4) <= 1e-15 && pointOnSeg(c, d, b)) return true;
+  return false;
+}
+
+/**
+ * Remove 180-degree foldback spikes (A -> B -> C where B backtracks straight along A-C)
+ * and resolve any micro self-crossings/pinch loops so the final rounded Polygon ring is strictly simple.
+ */
+function sanitizeSimpleOpenRing(pts) {
+  let ring = pts.slice();
+
+  // 1. Iteratively strip 180-degree hairpin spikes & consecutive duplicates
+  let changed = true;
+  let guard = 0;
+  while (changed && ring.length >= 3 && guard < 16) {
+    changed = false;
+    guard++;
+    const next = [];
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const prev = ring[(i - 1 + n) % n];
+      const curr = ring[i];
+      const nxt = ring[(i + 1) % n];
+      if (curr[0] === prev[0] && curr[1] === prev[1]) {
+        changed = true;
+        continue;
+      }
+      const v1x = curr[0] - prev[0];
+      const v1y = curr[1] - prev[1];
+      const v2x = nxt[0] - curr[0];
+      const v2y = nxt[1] - curr[1];
+      const len1 = Math.hypot(v1x, v1y);
+      const len2 = Math.hypot(v2x, v2y);
+      if (len1 === 0 || len2 === 0) {
+        changed = true;
+        continue;
+      }
+      const sinTheta = Math.abs(v1x * v2y - v1y * v2x) / (len1 * len2);
+      const dot = v1x * v2x + v1y * v2y;
+      // Collinear foldback spike (angle ~ 180 deg) -> drop spike tip `curr`
+      if (sinTheta < 1e-5 && dot < 0) {
+        changed = true;
+        continue;
+      }
+      next.push(curr);
+    }
+    ring = next;
+  }
+
+  // 2. Cut out any remaining non-adjacent self-crossing or pinch-point sub-loop (keep larger loop)
+  for (let pass = 0; pass < 12 && ring.length >= 4; pass++) {
+    const n = ring.length;
+    let cutI = -1;
+    let cutJ = -1;
+
+    // 2a. Check exact duplicate non-adjacent vertices (pinch point)
+    const seen = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = `${ring[i][0]},${ring[i][1]}`;
+      if (seen.has(k)) {
+        cutI = seen.get(k);
+        cutJ = i;
+        break;
+      }
+      seen.set(k, i);
+    }
+
+    // 2b. Check crossing non-adjacent edges
+    if (cutI < 0) {
+      outer: for (let i = 0; i < n; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % n];
+        const minX = Math.min(a[0], b[0]);
+        const maxX = Math.max(a[0], b[0]);
+        const minY = Math.min(a[1], b[1]);
+        const maxY = Math.max(a[1], b[1]);
+        for (let j = i + 2; j < n; j++) {
+          if (i === 0 && j === n - 1) continue;
+          const c = ring[j];
+          const d = ring[(j + 1) % n];
+          if (Math.max(c[0], d[0]) < minX || Math.min(c[0], d[0]) > maxX || Math.max(c[1], d[1]) < minY || Math.min(c[1], d[1]) > maxY) {
+            continue;
+          }
+          if (segmentsIntersect(a, b, c, d)) {
+            cutI = i;
+            cutJ = j;
+            break outer;
+          }
+        }
+      }
+    }
+
+    if (cutI < 0) break;
+    // Two candidate rings after removing the loop between cutI and cutJ; keep the one with larger area
+    const candA = [...ring.slice(0, cutI + 1), ...ring.slice(cutJ + 1)];
+    const candB = ring.slice(cutI + 1, cutJ + 1);
+    const areaA = candA.length >= 3 ? ringAreaSqMeters(candA) : 0;
+    const areaB = candB.length >= 3 ? ringAreaSqMeters(candB) : 0;
+    ring = areaA >= areaB ? candA : candB;
+  }
+
+  return ring;
+}
+
 function closeAndRoundRing(ring, decimals = 6) {
   const factor = 10 ** decimals;
   const pts = [];
@@ -134,11 +261,16 @@ function closeAndRoundRing(ring, decimals = 6) {
     if (prev && prev[0] === x && prev[1] === y) continue;
     pts.push([x, y]);
   }
+  if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
+    pts.pop();
+  }
   if (pts.length < 3) return null;
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) pts.push([first[0], first[1]]);
-  return pts.length >= 4 ? pts : null;
+  const clean = sanitizeSimpleOpenRing(pts);
+  if (clean.length < 3) return null;
+  const first = clean[0];
+  const last = clean[clean.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) clean.push([first[0], first[1]]);
+  return clean.length >= 4 ? clean : null;
 }
 
 /**

@@ -288,6 +288,28 @@ test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () =
   assert.equal(reconstructed, fullOneLine, 'concatenated #FENCE chunks must match exact original GeoJSON');
   assert.deepEqual(splitFenceChunks('{"type":"Polygon"}'), ['{"type":"Polygon"}']);
 
+  // Regression: 180-degree foldback spike like LDGV00P point #3126 must be stripped so ring never crosses itself
+  const spiky = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [108.601194, 11.243728],
+        [108.601084, 11.24352],
+        [108.601139, 11.243624],
+        [108.578117, 11.247123],
+        [108.61, 11.26],
+        [108.601194, 11.243728],
+      ],
+    ],
+  };
+  const cleanedSpiky = JSON.parse(buildExcelSafePolygonOneLine(spiky));
+  assert.equal(
+    cleanedSpiky.coordinates[0].some((p) => p[0] === 108.601084 && p[1] === 11.24352),
+    false,
+    'hairpin foldback spike tip must be removed',
+  );
+  assert.equal(cleanedSpiky.coordinates[0].length, 5);
+
   // Consecutive duplicate vertices after 6-decimal rounding must be stripped
   const dupPoly = buildExcelSafePolygonOneLine({
     type: 'Polygon',
