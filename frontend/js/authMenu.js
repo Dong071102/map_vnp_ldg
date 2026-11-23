@@ -1,4 +1,4 @@
-import { fetchAuthMe, logoutAdmin } from './api.js';
+import { fetchAuthMe, logoutAdmin } from './api.js?v=20261123b';
 
 function escapeHtml(str) {
   return String(str ?? '')

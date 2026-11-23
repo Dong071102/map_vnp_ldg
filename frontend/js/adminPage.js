@@ -23,13 +23,13 @@ import {
   setExportShrinkMeters,
   appendShrinkParam,
   shrinkGeojson,
-} from './api.js';
-import { computeGeoStats, serializeGeometryOneLine } from './geometry.js';
-import { initAdminTab } from './admin.js';
-import { createPolygonEditor } from './polygonEditor.js';
-import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
-import { notify, confirmNoti } from './notify.js';
-import { createAuthMenu } from './authMenu.js';
+} from './api.js?v=20261123b';
+import { computeGeoStats, serializeGeometryOneLine } from './geometry.js?v=20261123b';
+import { initAdminTab } from './admin.js?v=20261123b';
+import { createPolygonEditor } from './polygonEditor.js?v=20261123b';
+import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js?v=20261123b';
+import { notify, confirmNoti } from './notify.js?v=20261123b';
+import { createAuthMenu } from './authMenu.js?v=20261123b';
 
 const $ = (id) => document.getElementById(id);
 

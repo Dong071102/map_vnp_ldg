@@ -197,7 +197,8 @@ async function serveStatic(res, pathname) {
     const ext = path.extname(fullPath).toLowerCase();
     const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' };
     if (ext === '.html' || ext === '.css' || ext === '.js') {
-      headers['Cache-Control'] = 'no-cache, must-revalidate';
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
+      headers.Pragma = 'no-cache';
     }
     res.writeHead(200, headers);
     res.end(content);

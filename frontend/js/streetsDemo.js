@@ -1,13 +1,13 @@
-import { createPolygonEditor } from './polygonEditor.js';
-import { serializeGeometryOneLine } from './geometry.js';
-import { notify, confirmNoti } from './notify.js';
-import { createAuthMenu, hasAuthPerm } from './authMenu.js';
+import { createPolygonEditor } from './polygonEditor.js?v=20261123b';
+import { serializeGeometryOneLine } from './geometry.js?v=20261123b';
+import { notify, confirmNoti } from './notify.js?v=20261123b';
+import { createAuthMenu, hasAuthPerm } from './authMenu.js?v=20261123b';
 import {
   getExportShrinkMeters,
   setExportShrinkMeters,
   appendShrinkParam,
   shrinkGeojson,
-} from './api.js';
+} from './api.js?v=20261123b';
 
 const $ = (id) => document.getElementById(id);
 

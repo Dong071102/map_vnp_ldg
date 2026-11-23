@@ -5,8 +5,8 @@ import {
   updateLamDongUnitFields,
   fetchAndSaveLamDongGeojson,
   importLamDongOpenData,
-} from './api.js';
-import { notify, confirmNoti } from './notify.js';
+} from './api.js?v=20261123b';
+import { notify, confirmNoti } from './notify.js?v=20261123b';
 
 function escapeHtml(str) {
   return String(str ?? '')

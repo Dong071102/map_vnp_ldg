@@ -5,17 +5,17 @@ import {
   setExportShrinkMeters,
   appendShrinkParam,
   shrinkGeojson,
-} from './api.js';
+} from './api.js?v=20261123b';
 import {
   isPolygonFeature,
   formatArea,
   computeGeoStats,
   extractBareGeometry,
   serializeGeometryOneLine,
-} from './geometry.js';
-import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js';
-import { notify } from './notify.js';
-import { createAuthMenu, hasAuthPerm } from './authMenu.js';
+} from './geometry.js?v=20261123b';
+import { addVietnamIslandsOverlay } from './vnIslandsOverlay.js?v=20261123b';
+import { notify } from './notify.js?v=20261123b';
+import { createAuthMenu, hasAuthPerm } from './authMenu.js?v=20261123b';
 
 const MAX_PREVIEW_CHARS = 70000;
 const PALETTE = [
