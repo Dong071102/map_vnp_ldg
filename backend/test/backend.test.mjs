@@ -18,9 +18,11 @@ import {
   parseBcvhCode,
   formatAdminPath,
   buildExcelSafePolygonOneLine,
+  splitFenceChunks,
   getMissingExcelFields,
   validateBcvhForExcelExport,
   bcvhOfficeToNodeRow,
+  bcvhOfficeToNodeRows,
   buildBcvhWorkbookBuffer,
 } from '../src/bcvhExcel.mjs';
 import { ringAreaSqMeters, computeGeoStats, bboxesOverlap } from '../../frontend/js/geometry.js';
@@ -247,6 +249,44 @@ test('bcvhExcel formats VNPost fields and produces valid 3-sheet xlsx ZIP', () =
   ]);
   assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '' }]).ok, false);
   assert.equal(validateBcvhForExcelExport([{ id: 1, name: 'BCVH A', officeAreaM2: 120, contactName: 'An', contactPhone: '0912345678' }]).ok, true);
+
+  // #FENCE:k/N# multi-row splitting every 30,000 chars without dropping any vertices
+  const denseRing = [];
+  for (let i = 0; i < 3200; i++) {
+    const a = (i / 3200) * Math.PI * 2;
+    denseRing.push([Number((108.3 + Math.cos(a) * 0.1).toFixed(6)), Number((11.7 + Math.sin(a) * 0.1).toFixed(6))]);
+  }
+  denseRing.push(denseRing[0]);
+  const denseGeo = { type: 'Polygon', coordinates: [denseRing] };
+  const fullOneLine = buildExcelSafePolygonOneLine(denseGeo);
+  assert.ok(fullOneLine.length > 60000, 'full polygon must not be simplified/truncated');
+  const splitRows = bcvhOfficeToNodeRows({
+    code: 'LDGV00G/673380',
+    name: 'BCVH Đức Trọng',
+    hostWardName: 'Xã Đức Trọng',
+    address: 'QL20 Đức Trọng',
+    officeAreaM2: 180,
+    contactName: 'Nguyễn Văn A',
+    contactPhone: '0888139797',
+    lng: 108.374667,
+    lat: 11.737758,
+    serviceGeojson: denseGeo,
+  });
+  const expectedTotal = Math.ceil(fullOneLine.length / 30000);
+  assert.equal(splitRows.length, expectedTotal);
+  let reconstructed = '';
+  for (let i = 0; i < splitRows.length; i++) {
+    const prefix = `#FENCE:${i + 1}/${expectedTotal}#`;
+    assert.ok(splitRows[i][19].startsWith(prefix), `row ${i + 1} must start with ${prefix}`);
+    assert.ok(splitRows[i][19].length <= 30020, 'each Excel cell stays well under 32,767 chars');
+    // All other 22 columns must be identical copies
+    for (let c = 0; c < 23; c++) {
+      if (c !== 19) assert.equal(splitRows[i][c], splitRows[0][c]);
+    }
+    reconstructed += splitRows[i][19].slice(prefix.length);
+  }
+  assert.equal(reconstructed, fullOneLine, 'concatenated #FENCE chunks must match exact original GeoJSON');
+  assert.deepEqual(splitFenceChunks('{"type":"Polygon"}'), ['{"type":"Polygon"}']);
 
   // Consecutive duplicate vertices after 6-decimal rounding must be stripped
   const dupPoly = buildExcelSafePolygonOneLine({

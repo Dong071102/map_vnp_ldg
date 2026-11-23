@@ -143,9 +143,10 @@ function closeAndRoundRing(ring, decimals = 6) {
 
 /**
  * Convert BCVH serviceGeojson to a single closed outer-ring Polygon (no holes, no MultiPolygon)
- * strictly <= 32,000 chars so it complies with both VNPost Rule #20 and Excel's 32,767-char cell limit.
+ * keeping 100% original un-simplified vertices (no character cap; long strings are split across
+ * multiple Excel rows via #FENCE:k/N# in bcvhOfficeToNodeRows).
  */
-export function buildExcelSafePolygonOneLine(serviceGeojson, maxChars = 32000) {
+export function buildExcelSafePolygonOneLine(serviceGeojson) {
   if (!serviceGeojson || typeof serviceGeojson !== 'object') return '';
   const outerRings = [];
 
@@ -183,22 +184,28 @@ export function buildExcelSafePolygonOneLine(serviceGeojson, maxChars = 32000) {
     }
   }
 
-  let closed = closeAndRoundRing(bestRing, 6);
+  const closed = closeAndRoundRing(bestRing, 6);
   if (!closed) return '';
-  let json = JSON.stringify({ type: 'Polygon', coordinates: [closed] });
-  if (json.length <= maxChars) return json;
+  return JSON.stringify({ type: 'Polygon', coordinates: [closed] });
+}
 
-  // Gently simplify only when needed to stay under Excel's 32,767-char cell limit
-  const tolerances = [0.0002, 0.00035, 0.0005, 0.0008, 0.0012, 0.002, 0.003, 0.005, 0.008, 0.015];
-  for (const tol of tolerances) {
-    const simp = simplifyDP(closed, tol * tol);
-    const candidate = closeAndRoundRing(simp, 5);
-    if (!candidate) continue;
-    const str = JSON.stringify({ type: 'Polygon', coordinates: [candidate] });
-    if (str.length <= maxChars) return str;
-    json = str;
+export const FENCE_CHUNK_SIZE = 30000;
+
+/**
+ * Split a long GeoJSON Polygon string every 30,000 chars into VNPost multi-row chunks:
+ *   #FENCE:1/N#<chunk1>, #FENCE:2/N#<chunk2>, ...
+ * Strings <= chunkSize stay as a single un-prefixed cell.
+ */
+export function splitFenceChunks(geoOneLine, chunkSize = FENCE_CHUNK_SIZE) {
+  const raw = String(geoOneLine || '');
+  if (!raw || raw.length <= chunkSize) return [raw];
+  const total = Math.ceil(raw.length / chunkSize);
+  const chunks = [];
+  for (let i = 0; i < total; i++) {
+    const part = raw.slice(i * chunkSize, (i + 1) * chunkSize);
+    chunks.push(`#FENCE:${i + 1}/${total}#${part}`);
   }
-  return json;
+  return chunks;
 }
 
 export function getMissingExcelFields(office) {
@@ -287,6 +294,16 @@ export function bcvhOfficeToNodeRow(office) {
     '',
     deptCode,
   ];
+}
+
+export function bcvhOfficeToNodeRows(office, { chunkSize = FENCE_CHUNK_SIZE } = {}) {
+  const baseRow = bcvhOfficeToNodeRow(office);
+  const chunks = splitFenceChunks(baseRow[19], chunkSize);
+  return chunks.map((chunk) => {
+    const copy = baseRow.slice();
+    copy[19] = chunk;
+    return copy;
+  });
 }
 
 // --- Zero-dependency Valid XLSX (OOXML + ZIP) Writer ---
@@ -423,9 +440,9 @@ export function buildBcvhWorkbookBuffer(offices = []) {
   const counterRows = [COUNTERS_HEADERS];
 
   for (const office of offices) {
-    const nodeRow = bcvhOfficeToNodeRow(office);
-    const nodeCode = nodeRow[0];
-    nodesRows.push(nodeRow);
+    const rowsForOffice = bcvhOfficeToNodeRows(office);
+    const nodeCode = rowsForOffice[0]?.[0] || '';
+    for (const row of rowsForOffice) nodesRows.push(row);
     slaRows.push([nodeCode, '', '', '', '', '', '', '', '', '']);
     counterRows.push([nodeCode, '', '']);
   }
