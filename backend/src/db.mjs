@@ -93,10 +93,74 @@ function parseWktRing(ringText) {
 
 const METERS_PER_DEGREE_LDG = 111195;
 
-async function shrinkSingleGeometryWkt(wkt, shrinkMeters) {
+function pickLargestOuterRing(geom) {
+  if (!geom) return null;
+  let rings = [];
+  if (geom.type === 'Polygon' && Array.isArray(geom.coordinates?.[0])) {
+    rings = [geom.coordinates[0]];
+  } else if (geom.type === 'MultiPolygon' && Array.isArray(geom.coordinates)) {
+    rings = geom.coordinates.map((p) => p?.[0]).filter(Boolean);
+  }
+  if (rings.length === 0) return null;
+  if (rings.length === 1) return rings[0];
+  let best = rings[0];
+  let bestArea = computeGeoStats({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [best] } }] }, null).areaSqM;
+  for (let i = 1; i < rings.length; i++) {
+    const a = computeGeoStats({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [rings[i]] } }] }, null).areaSqM;
+    if (a > bestArea) {
+      bestArea = a;
+      best = rings[i];
+    }
+  }
+  return best;
+}
+
+async function shrinkSingleGeometryWkt(wkt, shrinkMeters, { maxChars = 0 } = {}) {
   const db = await getReadyPool();
-  const deg = Math.min(100, Math.max(0, Number(shrinkMeters) || 0)) / METERS_PER_DEGREE_LDG;
-  if (!wkt || !(deg > 0)) return null;
+  const clampedM = Math.min(100, Math.max(0, Number(shrinkMeters) || 0));
+  if (!wkt) return null;
+
+  // Strictly-inward Buffer + Reduce mode (for Excel 32,000-char cell cap with 0 m² neighbor overlap):
+  // Always buffers inward by (reduceM + bufTolM + baseM) BEFORE Reduce(reduceM) so worst-case
+  // chord deviation can NEVER cross outside the original polygon into an adjacent BCVH.
+  if (maxChars > 0) {
+    const baseM = Math.max(0.5, clampedM);
+    const reduceLadderM = [0, 2, 5, 10, 18, 30, 50, 80, 120, 180];
+    let bestGeom = null;
+    for (const rM of reduceLadderM) {
+      const baseDeg = baseM / METERS_PER_DEGREE_LDG;
+      const rDeg = rM / METERS_PER_DEGREE_LDG;
+      const bufTolDeg =
+        rM > 0
+          ? Math.max(0.5 / METERS_PER_DEGREE_LDG, rDeg * 0.12)
+          : Math.max(0.2 / METERS_PER_DEGREE_LDG, baseDeg * 0.2);
+      const dDeg = rDeg + bufTolDeg + baseDeg;
+      const res = await db
+        .request()
+        .input('wkt', sql.NVarChar(sql.MAX), wkt)
+        .input('d', sql.Float, dDeg)
+        .input('btol', sql.Float, bufTolDeg)
+        .input('r', sql.Float, rDeg)
+        .query(`
+          DECLARE @g GEOMETRY = GEOMETRY::STGeomFromText(@wkt, 4326).MakeValid();
+          DECLARE @s GEOMETRY = @g.BufferWithTolerance(-@d, @btol, 0).MakeValid();
+          IF @r > 0 AND @s.STIsEmpty() = 0 SET @s = @s.Reduce(@r).MakeValid();
+          SELECT @s.STIsEmpty() AS isEmpty, @s.STAsText() AS wkt;
+        `);
+      if (!res.recordset[0] || res.recordset[0].isEmpty) continue;
+      const parsed = wktToGeoJsonGeometry(res.recordset[0].wkt);
+      if (!parsed) continue;
+      const ring = pickLargestOuterRing(parsed);
+      if (!ring) continue;
+      const poly = { type: 'Polygon', coordinates: [ring] };
+      bestGeom = poly;
+      if (JSON.stringify(poly).length <= maxChars) return poly;
+    }
+    return bestGeom;
+  }
+
+  const deg = clampedM / METERS_PER_DEGREE_LDG;
+  if (!(deg > 0)) return null;
 
   const result = await db
     .request()
@@ -111,28 +175,35 @@ async function shrinkSingleGeometryWkt(wkt, shrinkMeters) {
       IF @s.STIsEmpty() = 1 SET @s = @g;
       SELECT @s.STAsText() AS wkt;
     `);
-  return result.recordset[0]?.wkt || null;
+  return wktToGeoJsonGeometry(result.recordset[0]?.wkt || null);
 }
 
 /**
- * Inward negative buffer (SQL Server STBuffer/BufferWithTolerance(-d)) to separate shared boundaries
+ * Inward negative buffer (SQL Server BufferWithTolerance(-d)) to separate shared boundaries
  * and eliminate duplicate boundary vertices between neighboring polygons.
- * Preserves input GeoJSON shape (FeatureCollection / Feature / bare Geometry) and shrinks each
- * feature independently so neighboring features in the same collection separate cleanly.
+ * When maxChars > 0 (e.g. 32000 for Excel), uses strictly-inward Buffer + Reduce so the exported
+ * Polygon fits within maxChars while mathematically guaranteeing 0 m² overlap with neighbors.
  */
-export async function shrinkGeojsonByMeters(geojson, shrinkMeters) {
+export async function shrinkGeojsonByMeters(geojson, shrinkMeters, { maxChars = 0 } = {}) {
   const meters = Math.min(100, Math.max(0, Number(shrinkMeters) || 0));
-  if (!geojson || typeof geojson !== 'object' || !(meters > 0)) return geojson;
+  if (!geojson || typeof geojson !== 'object') return geojson;
+  if (!(meters > 0) && !(maxChars > 0)) return geojson;
 
   const shrinkGeom = async (geomObj) => {
     const wkt = geojsonToMultiPolygonWkt(geomObj);
     if (!wkt) return geomObj;
-    const outWkt = await shrinkSingleGeometryWkt(wkt, meters);
-    const parsed = wktToGeoJsonGeometry(outWkt);
+    const parsed = await shrinkSingleGeometryWkt(wkt, meters, { maxChars });
     return parsed || geomObj;
   };
 
   if (geojson.type === 'FeatureCollection' && Array.isArray(geojson.features)) {
+    // If maxChars is requested (e.g. single BCVH Excel cell), dissolve/shrink as one unified geometry
+    if (maxChars > 0) {
+      const wkt = geojsonToMultiPolygonWkt(geojson);
+      if (!wkt) return geojson;
+      const parsed = await shrinkSingleGeometryWkt(wkt, meters, { maxChars });
+      return parsed || geojson;
+    }
     const features = await Promise.all(
       geojson.features.map(async (f) => {
         if (!f?.geometry) return f;

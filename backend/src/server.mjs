@@ -686,17 +686,14 @@ function parseShrinkMeters(raw) {
             sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
             return;
           }
-          const exportOffices =
-            shrinkM > 0
-              ? await Promise.all(
-                  offices.map(async (o) => ({
-                    ...o,
-                    serviceGeojson: o.serviceGeojson
-                      ? await shrinkGeojsonByMeters(o.serviceGeojson, shrinkM)
-                      : o.serviceGeojson,
-                  })),
-                )
-              : offices;
+          const exportOffices = await Promise.all(
+            offices.map(async (o) => ({
+              ...o,
+              serviceGeojson: o.serviceGeojson
+                ? await shrinkGeojsonByMeters(o.serviceGeojson, shrinkM, { maxChars: 32000 })
+                : o.serviceGeojson,
+            })),
+          );
           const buf = buildBcvhWorkbookBuffer(exportOffices);
           const suffix = shrinkM > 0 ? `_co${shrinkM}m` : '';
           sendXlsxDownload(
@@ -725,10 +722,9 @@ function parseShrinkMeters(raw) {
             sendJson(res, 400, { error: check.message, incomplete: check.incomplete });
             return;
           }
-          const exportOffice =
-            shrinkM > 0 && office.serviceGeojson
-              ? { ...office, serviceGeojson: await shrinkGeojsonByMeters(office.serviceGeojson, shrinkM) }
-              : office;
+          const exportOffice = office.serviceGeojson
+            ? { ...office, serviceGeojson: await shrinkGeojsonByMeters(office.serviceGeojson, shrinkM, { maxChars: 32000 }) }
+            : office;
           const buf = buildBcvhWorkbookBuffer([exportOffice]);
           const safeUnicodeName = String(office.name || 'BCVH').replace(/[\\/:*?"<>|]/g, '').trim().replace(/\s+/g, '_');
           const safeAsciiName = toSafeSlug(office.name, `BCVH_${office.id}`);
