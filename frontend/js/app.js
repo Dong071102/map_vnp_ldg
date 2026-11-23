@@ -41,7 +41,7 @@ function assignDistinctOldDistrictColors(regionList) {
 }
 
 // --- Map Setup ---
-const map = L.map('map', { zoomControl: true }).setView([11.55, 107.65], 8);
+const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([11.55, 107.65], 8);
 map.createPane('districtPane');
 map.getPane('districtPane').style.zIndex = 430;
 map.createPane('bcvhZonePane');
@@ -454,7 +454,7 @@ function renderRegionOnMap(region) {
   region.layer = L.geoJSON(fc, {
     ...(isOldDistrict ? { pane: 'districtPane' } : {}),
     interactive: !(isOldDistrict && wardsAlsoShown),
-    style: () => getRegionStyle(region),
+    style: () => ({ smoothFactor: 0.2, lineJoin: 'round', lineCap: 'round', ...getRegionStyle(region) }),
     pointToLayer: (_f, latlng) =>
       L.circleMarker(latlng, { radius: 6, color: region.color, weight: 2, fillColor: '#ffffff', fillOpacity: 1 }),
     onEachFeature: (feature, layer) => {
@@ -745,7 +745,7 @@ function renderBcvhMarkers() {
       const zoneLayer = L.geoJSON(office.serviceGeojson, {
         pane: 'bcvhZonePane',
         interactive: !wardsAlsoShown,
-        style: () => getBcvhZoneStyle(office),
+        style: () => ({ smoothFactor: 0.2, lineJoin: 'round', lineCap: 'round', ...getBcvhZoneStyle(office) }),
         onEachFeature: (_f, lyr) => {
           if (wardsAlsoShown) return;
           lyr.bindTooltip(cardHtml, {
@@ -1170,7 +1170,7 @@ function createRegionStateFromDto(dto) {
     visible: true,
     meta: dto.meta,
     rawGeojson: dto.geojson,
-    originalGeojson: dto.originalGeojson || structuredClone(dto.geojson),
+    originalGeojson: dto.originalGeojson || dto.geojson,
     modified: Boolean(dto.modified),
     unsaved: false,
     layer: null,

@@ -120,14 +120,30 @@ async function shrinkSingleGeometryWkt(wkt, shrinkMeters, { maxChars = 0 } = {})
   const clampedM = Math.min(100, Math.max(0, Number(shrinkMeters) || 0));
   if (!wkt) return null;
 
-  // Strictly-inward Buffer + Reduce mode (for Excel 32,000-char cell cap with 0 m² neighbor overlap):
+  // Strictly-inward Buffer + Binary-Search Reduce mode (for Excel 32,000-char cell cap with 0 m² neighbor overlap):
   // Always buffers inward by (reduceM + bufTolM + baseM) BEFORE Reduce(reduceM) so worst-case
   // chord deviation can NEVER cross outside the original polygon into an adjacent BCVH.
+  // Uses binary search + 5-decimal rounding (~1.1m) when needed to pack maximum curve vertices under maxChars.
   if (maxChars > 0) {
     const baseM = Math.max(0.5, clampedM);
-    const reduceLadderM = [0, 2, 5, 10, 18, 30, 50, 80, 120, 180];
-    let bestGeom = null;
-    for (const rM of reduceLadderM) {
+    const roundRing = (ring, decimals) => {
+      const factor = 10 ** decimals;
+      const out = [];
+      for (const [x0, y0] of ring) {
+        const x = Math.round(x0 * factor) / factor;
+        const y = Math.round(y0 * factor) / factor;
+        const prev = out[out.length - 1];
+        if (prev && prev[0] === x && prev[1] === y) continue;
+        out.push([x, y]);
+      }
+      if (out.length < 3) return null;
+      const first = out[0];
+      const last = out[out.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) out.push([first[0], first[1]]);
+      return out.length >= 4 ? out : null;
+    };
+
+    const evalCandidate = async (rM, decimals) => {
       const baseDeg = baseM / METERS_PER_DEGREE_LDG;
       const rDeg = rM / METERS_PER_DEGREE_LDG;
       const bufTolDeg =
@@ -147,16 +163,54 @@ async function shrinkSingleGeometryWkt(wkt, shrinkMeters, { maxChars = 0 } = {})
           IF @r > 0 AND @s.STIsEmpty() = 0 SET @s = @s.Reduce(@r).MakeValid();
           SELECT @s.STIsEmpty() AS isEmpty, @s.STAsText() AS wkt;
         `);
-      if (!res.recordset[0] || res.recordset[0].isEmpty) continue;
+      if (!res.recordset[0] || res.recordset[0].isEmpty) return null;
       const parsed = wktToGeoJsonGeometry(res.recordset[0].wkt);
-      if (!parsed) continue;
-      const ring = pickLargestOuterRing(parsed);
-      if (!ring) continue;
+      if (!parsed) return null;
+      const rawRing = pickLargestOuterRing(parsed);
+      if (!rawRing) return null;
+      const ring = decimals < 6 ? roundRing(rawRing, decimals) : rawRing;
+      if (!ring) return null;
       const poly = { type: 'Polygon', coordinates: [ring] };
-      bestGeom = poly;
-      if (JSON.stringify(poly).length <= maxChars) return poly;
+      return { poly, len: JSON.stringify(poly).length };
+    };
+
+    // First try 0 simplification at 6 decimals, then 5 decimals
+    const z6 = await evalCandidate(0, 6);
+    if (z6 && z6.len <= maxChars) return z6.poly;
+    const z5 = await evalCandidate(0, 5);
+    if (z5 && z5.len <= maxChars) return z5.poly;
+
+    // Bracket + binary search with 5 decimals to preserve maximum curve smoothness under maxChars
+    let low = 0;
+    let high = 2;
+    let best = z5?.poly || z6?.poly || null;
+    let fitted = false;
+    while (high <= 300) {
+      const c = await evalCandidate(high, 5);
+      if (c) {
+        best = c.poly;
+        if (c.len <= maxChars) {
+          fitted = true;
+          break;
+        }
+      }
+      low = high;
+      high *= 2;
     }
-    return bestGeom;
+    if (fitted) {
+      for (let iter = 0; iter < 5 && high - low > 0.5; iter++) {
+        const mid = Math.round(((low + high) / 2) * 2) / 2;
+        if (mid <= low || mid >= high) break;
+        const c = await evalCandidate(mid, 5);
+        if (c && c.len <= maxChars) {
+          best = c.poly;
+          high = mid;
+        } else {
+          low = mid;
+        }
+      }
+    }
+    return best;
   }
 
   const deg = clampedM / METERS_PER_DEGREE_LDG;
@@ -568,7 +622,11 @@ async function getReadyPool() {
 function rowToRegionDto(row) {
   const geojson = typeof row.geojson === 'string' ? JSON.parse(row.geojson) : row.geojson;
   const originalGeojson =
-    typeof row.original_geojson === 'string' ? JSON.parse(row.original_geojson) : row.original_geojson;
+    row.original_geojson == null
+      ? null
+      : typeof row.original_geojson === 'string'
+        ? JSON.parse(row.original_geojson)
+        : row.original_geojson;
 
   return {
     id: row.id,
@@ -717,7 +775,9 @@ export async function listRegions() {
   const result = await p.request().query(`
     SELECT r.id, r.region_key, r.layer_group, r.qid, r.name, r.description, r.osm_relation_id, r.source,
            r.wikipedia_url, r.wikidata_url, r.geoshape_url, r.color, r.area_km2,
-           r.points_count, r.modified, r.geojson, r.original_geojson, r.created_at, r.updated_at,
+           r.points_count, r.modified, r.geojson,
+           CASE WHEN r.modified = 1 THEN r.original_geojson ELSE NULL END AS original_geojson,
+           r.created_at, r.updated_at,
            u.old_district, u.old_province
     FROM dbo.admin_regions r
     OUTER APPLY (

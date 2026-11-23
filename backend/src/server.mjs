@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.mjs';
 import {
@@ -82,7 +83,35 @@ const __dirname = path.dirname(__filename);
 const FRONTEND_DIR = path.resolve(__dirname, '..', '..', 'frontend');
 const NEIGHBOR_PROVINCES_FILE = path.resolve(__dirname, '..', 'data', 'lamdong_neighbor_provinces.geojson');
 let cachedNeighborProvincesJson = null;
-const MAX_BODY_BYTES = 15 * 1024 * 1024; // 15 MB limit for large multi-region GeoJSON batches
+let cachedRegionsPayload = null; // { raw: Buffer, gz: Buffer, ts: number }
+let cachedBcvhPayload = null; // { raw: Buffer, gz: Buffer, ts: number }
+const MAP_CACHE_TTL_MS = 60_000;
+
+function invalidateMapCaches() {
+  cachedRegionsPayload = null;
+  cachedBcvhPayload = null;
+}
+
+function sendCachedJson(req, res, entry) {
+  const acceptEnc = String(req.headers?.['accept-encoding'] || '');
+  if (entry.gz && /\bgzip\b/i.test(acceptEnc)) {
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Encoding': 'gzip',
+      Vary: 'Accept-Encoding',
+      'Cache-Control': 'no-store',
+    });
+    res.end(entry.gz);
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(entry.raw);
+}
+
+const MAX_BODY_BYTES = 40 * 1024 * 1024; // 40 MB limit for full-resolution GeoJSON batches
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -117,12 +146,26 @@ function toSafeSlug(str, fallback = 'bcvh') {
 }
 
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
+  const raw = JSON.stringify(payload);
+  const acceptEnc = String(res.req?.headers?.['accept-encoding'] || '');
+  if (raw.length > 32768 && /\bgzip\b/i.test(acceptEnc)) {
+    const gz = zlib.gzipSync(raw, { level: 6 });
+    res.writeHead(statusCode, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Encoding': 'gzip',
+      Vary: 'Accept-Encoding',
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    });
+    res.end(gz);
+    return;
+  }
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     ...extraHeaders,
   });
-  res.end(JSON.stringify(payload));
+  res.end(raw);
 }
 
 function requireAdmin(req, res) {
@@ -228,6 +271,12 @@ export function createAppServer() {
 
       const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const { pathname } = reqUrl;
+
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+        if (pathname.startsWith('/api/regions') || pathname.startsWith('/api/bcvh') || pathname.startsWith('/api/lamdong')) {
+          invalidateMapCaches();
+        }
+      }
 
       if (pathname === '/api/health' && req.method === 'GET') {
         sendJson(res, 200, { ok: true, db: getDbStatus() });
@@ -469,8 +518,14 @@ function parseShrinkMeters(raw) {
 
       if (pathname === '/api/regions' && req.method === 'GET') {
         try {
-          const regions = await listRegions();
-          sendJson(res, 200, { regions, db: getDbStatus() });
+          const now = Date.now();
+          if (!cachedRegionsPayload || now - cachedRegionsPayload.ts > MAP_CACHE_TTL_MS) {
+            const regions = await listRegions();
+            const raw = Buffer.from(JSON.stringify({ regions, db: getDbStatus() }), 'utf8');
+            const gz = raw.length > 32768 ? zlib.gzipSync(raw, { level: 6 }) : null;
+            cachedRegionsPayload = { raw, gz, ts: now };
+          }
+          sendCachedJson(req, res, cachedRegionsPayload);
         } catch (err) {
           sendJson(res, 503, { error: err.message, db: getDbStatus() });
         }
